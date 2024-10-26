@@ -9,7 +9,7 @@ public class DummyMainTask : MainTaskBase
     public TMP_InputField playerInputField;
     public bool isTyping = false;
 
-    public TaskParagraphsData taskParagraphsData; // Reference to the ScriptableObject
+    public TaskParagraphsData taskParagraphsData; 
 
     private string requiredText = "";
     private string currentInputText = "";
@@ -27,7 +27,7 @@ public class DummyMainTask : MainTaskBase
 
         if (taskParagraphsData != null && taskParagraphsData.paragraphs.Count > 0)
         {
-            // Select a random paragraph from the ScriptableObject
+            
             requiredText = taskParagraphsData.paragraphs[Random.Range(0, taskParagraphsData.paragraphs.Count)];
         }
 
