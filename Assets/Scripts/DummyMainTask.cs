@@ -25,13 +25,12 @@ public class DummyMainTask : MainTaskBase
         base.StartMainTask();
         taskPanel.SetActive(true);
         taskPromptText.text = requiredText;
-
         playerInputField.text = currentInputText;
         playerInputField.gameObject.SetActive(true);
-
         playerInputField.Select();
         playerInputField.ActivateInputField();
-        UpdateTypedText();
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     public override void StopMainTask()
@@ -49,33 +48,35 @@ public class DummyMainTask : MainTaskBase
         return isTyping;
     }
 
-    private void Update()
+    private new void Update()
     {
         if (playerInputField.isFocused)
         {
             currentInputText = playerInputField.text;
             UpdateTypedText();
         }
-
-        if (Input.GetKeyDown(KeyCode.Escape) && isWorkingOnTask)
+        else
         {
-            StopMainTask();
+            playerInputField.Select();
+            playerInputField.ActivateInputField();
         }
     }
 
     private void UpdateTypedText()
     {
         string displayText = "";
+        bool hasMistake = false;
 
         for (int i = 0; i < currentInputText.Length; i++)
         {
-            if (i < requiredText.Length && requiredText[i] == currentInputText[i])
+            if (!hasMistake && i < requiredText.Length && requiredText[i] == currentInputText[i])
             {
                 displayText += $"<color=green>{currentInputText[i]}</color>";
             }
             else
             {
                 displayText += $"<color=red>{currentInputText[i]}</color>";
+                hasMistake = true;
             }
         }
 
@@ -83,9 +84,11 @@ public class DummyMainTask : MainTaskBase
 
         if (currentInputText.Equals(requiredText, System.StringComparison.OrdinalIgnoreCase))
         {
-            CompleteTask(); // Call complete task instantly if input matches
+            CompleteTask();
         }
     }
+
+
 
     protected override void CompleteTask()
     {
