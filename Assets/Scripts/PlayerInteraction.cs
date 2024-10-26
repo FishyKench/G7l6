@@ -1,21 +1,21 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+
 public class PlayerInteraction : MonoBehaviour
 {
     public float interactionRange = 3f;
     private Camera playerCamera;
+    private GameManager gameManager;
 
     void Start()
     {
         playerCamera = Camera.main;
+        gameManager = FindObjectOfType<GameManager>();
     }
 
     void Update()
     {
         if (Input.GetKeyDown(KeyCode.E))
         {
-            print("momo here!");
             TryInteract();
         }
     }
@@ -30,6 +30,11 @@ public class PlayerInteraction : MonoBehaviour
             if (interactable != null)
             {
                 interactable.Interact();
+
+                if (interactable is TaskBase task)
+                {
+                    gameManager.CompleteTask(task);
+                }
             }
         }
     }
