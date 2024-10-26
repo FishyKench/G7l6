@@ -46,7 +46,8 @@ public class DummyMainTask : MainTaskBase
         playerInputField.gameObject.SetActive(false);
         base.StopMainTask();
         taskPanel.SetActive(false);
-
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
         isTyping = false;
     }
 
@@ -87,7 +88,7 @@ public class DummyMainTask : MainTaskBase
             }
         }
 
-        typedText.text = displayText;
+        typedText.text = displayText + "|";
 
         if (currentInputText.Equals(requiredText, System.StringComparison.OrdinalIgnoreCase))
         {
