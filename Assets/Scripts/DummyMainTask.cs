@@ -25,7 +25,6 @@ public class DummyMainTask : MainTaskBase
         base.StartMainTask();
         taskPanel.SetActive(true);
         taskPromptText.text = requiredText;
-        playerInputField.text = currentInputText;
         playerInputField.gameObject.SetActive(true);
         playerInputField.Select();
         playerInputField.ActivateInputField();
@@ -35,14 +34,13 @@ public class DummyMainTask : MainTaskBase
 
     public override void StopMainTask()
     {
-        currentInputText = playerInputField.text;
+        playerInputField.text = ""; 
         playerInputField.gameObject.SetActive(false);
         base.StopMainTask();
         taskPanel.SetActive(false);
 
         isTyping = false;
     }
-
     public override bool ShouldBlockInput()
     {
         return isTyping;
