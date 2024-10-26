@@ -4,38 +4,77 @@ public class PlayerInteraction : MonoBehaviour
 {
     public float interactionRange = 3f;
     private Camera playerCamera;
-    private GameManager gameManager;
+    private MainTaskBase currentMainTask;
+    public PlayerCam playerCam;
+    private PlayerMovementAdvanced playerMovement;
+    private bool isInteractingWithMainTask = false;
 
     void Start()
     {
         playerCamera = Camera.main;
-        gameManager = FindObjectOfType<GameManager>();
+        playerMovement = GetComponent<PlayerMovementAdvanced>();
     }
 
     void Update()
     {
+        if (currentMainTask is DummyMainTask DummyMainTask && DummyMainTask.isTyping)
+            return;
+
         if (Input.GetKeyDown(KeyCode.E))
         {
-            TryInteract();
+            if (isInteractingWithMainTask)
+            {
+                StopCurrentMainTask();
+            }
+            else
+            {
+                TryInteract();
+            }
         }
     }
 
     void TryInteract()
     {
-        RaycastHit hit;
+        if (playerCamera == null) return;
 
+        RaycastHit hit;
         if (Physics.Raycast(playerCamera.transform.position, playerCamera.transform.forward, out hit, interactionRange))
         {
-            IInteractable interactable = hit.collider.GetComponent<IInteractable>();
-            if (interactable != null)
+            MainTaskBase mainTask = hit.collider.GetComponent<MainTaskBase>();
+            if (mainTask != null && !isInteractingWithMainTask)
             {
-                interactable.Interact();
+                currentMainTask = mainTask;
+                currentMainTask.StartMainTask();
+                isInteractingWithMainTask = true;
 
-                if (interactable is TaskBase task)
-                {
-                    gameManager.CompleteTask(task);
-                }
+                playerMovement.canMove = false;
+                playerCam.canRotate = false;
+                return;
+            }
+
+            TaskBase subTask = hit.collider.GetComponent<TaskBase>();
+            if (subTask != null && subTask is IInteractable interactableSubTask)
+            {
+                interactableSubTask.Interact();
             }
         }
+    }
+
+    void StopCurrentMainTask()
+    {
+        if (currentMainTask != null)
+        {
+            currentMainTask.StopMainTask();
+            currentMainTask = null;
+        }
+
+        isInteractingWithMainTask = false;
+        EnablePlayerControl();
+    }
+
+    public void EnablePlayerControl()
+    {
+        playerMovement.canMove = true;
+        playerCam.canRotate = true;
     }
 }

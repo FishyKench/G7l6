@@ -49,6 +49,9 @@ public class PlayerMovementAdvanced : MonoBehaviour
     Rigidbody rb;
 
     public MovementState state;
+
+    public bool canMove;
+
     public enum MovementState
     {
         walking,
@@ -62,6 +65,8 @@ public class PlayerMovementAdvanced : MonoBehaviour
         rb = GetComponent<Rigidbody>();
         rb.freezeRotation = true;
 
+        canMove = true;
+
         readyToJump = true;
 
         startYScale = transform.localScale.y;
@@ -69,18 +74,28 @@ public class PlayerMovementAdvanced : MonoBehaviour
 
     private void Update()
     {
-        
-        grounded = Physics.Raycast(transform.position, Vector3.down, playerHeight * 0.5f + 0.2f, whatIsGround);
 
-        MyInput();
-        SpeedControl();
-        StateHandler();
+        if (canMove)
+        {
+            grounded = Physics.Raycast(transform.position, Vector3.down, playerHeight * 0.5f + 0.2f, whatIsGround);
 
-        
-        if (grounded)
-            rb.drag = groundDrag;
+            MyInput();
+            SpeedControl();
+            StateHandler();
+
+
+            if (grounded)
+                rb.drag = groundDrag;
+            else
+                rb.drag = 0;
+        }
         else
-            rb.drag = 0;
+        {
+            rb.velocity = Vector3.zero;
+            return;
+        }
+        
+
     }
 
     private void FixedUpdate()
