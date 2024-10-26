@@ -2,7 +2,7 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 
-public class DummyMainTask : MainTaskBase, IInteractable
+public class DummyMainTask : MainTaskBase
 {
     public GameObject taskPanel;
     public TMP_Text taskPromptText;
@@ -39,6 +39,11 @@ public class DummyMainTask : MainTaskBase, IInteractable
         Cursor.visible = false;
     }
 
+    public override bool ShouldBlockInput()
+    {
+        return isTyping;
+    }
+
     public void CheckPlayerInput()
     {
         if (playerInputField.text.Trim().Equals(requiredText, System.StringComparison.OrdinalIgnoreCase))
@@ -52,23 +57,10 @@ public class DummyMainTask : MainTaskBase, IInteractable
         }
     }
 
-    public void Interact()
-    {
-        if (isWorkingOnTask)
-        {
-            StopMainTask();
-        }
-        else
-        {
-            StartMainTask();
-        }
-    }
-
     protected override void CompleteTask()
     {
         StopMainTask();
-        var playerInteraction = FindObjectOfType<PlayerInteraction>();
-        playerInteraction.EnablePlayerControl();
+        FindObjectOfType<PlayerInteraction>().EnablePlayerControl();
         Debug.Log("Main task completed!");
     }
 }

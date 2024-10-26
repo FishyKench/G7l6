@@ -4,7 +4,7 @@ public class PlayerInteraction : MonoBehaviour
 {
     public float interactionRange = 3f;
     private Camera playerCamera;
-    private MainTaskBase currentMainTask;
+    private IMainTask currentMainTask;
     public PlayerCam playerCam;
     private PlayerMovementAdvanced playerMovement;
     private bool isInteractingWithMainTask = false;
@@ -17,9 +17,20 @@ public class PlayerInteraction : MonoBehaviour
 
     void Update()
     {
-        if (currentMainTask is DummyMainTask DummyMainTask && DummyMainTask.isTyping)
+        
+        if (Input.GetKeyDown(KeyCode.Escape) && isInteractingWithMainTask)
+        {
+            StopCurrentMainTask();
             return;
+        }
 
+        
+        if (isInteractingWithMainTask && currentMainTask != null && currentMainTask.ShouldBlockInput())
+        {
+            return;
+        }
+
+        // Handle interaction input
         if (Input.GetKeyDown(KeyCode.E))
         {
             if (isInteractingWithMainTask)
@@ -35,20 +46,15 @@ public class PlayerInteraction : MonoBehaviour
 
     void TryInteract()
     {
-        if (playerCamera == null) return;
+        if (playerCamera == null || isInteractingWithMainTask) return;
 
         RaycastHit hit;
         if (Physics.Raycast(playerCamera.transform.position, playerCamera.transform.forward, out hit, interactionRange))
         {
-            MainTaskBase mainTask = hit.collider.GetComponent<MainTaskBase>();
-            if (mainTask != null && !isInteractingWithMainTask)
+            IMainTask mainTask = hit.collider.GetComponent<IMainTask>();
+            if (mainTask != null)
             {
-                currentMainTask = mainTask;
-                currentMainTask.StartMainTask();
-                isInteractingWithMainTask = true;
-
-                playerMovement.canMove = false;
-                playerCam.canRotate = false;
+                StartMainTask(mainTask);
                 return;
             }
 
@@ -60,15 +66,26 @@ public class PlayerInteraction : MonoBehaviour
         }
     }
 
+    void StartMainTask(IMainTask mainTask)
+    {
+        if (isInteractingWithMainTask) return;
+
+        currentMainTask = mainTask;
+        currentMainTask.StartMainTask();
+        isInteractingWithMainTask = true;
+
+        playerMovement.canMove = false;
+        playerCam.canRotate = false;
+    }
+
     void StopCurrentMainTask()
     {
-        if (currentMainTask != null)
-        {
-            currentMainTask.StopMainTask();
-            currentMainTask = null;
-        }
+        if (currentMainTask == null) return;
 
+        currentMainTask.StopMainTask();
+        currentMainTask = null;
         isInteractingWithMainTask = false;
+
         EnablePlayerControl();
     }
 

@@ -1,17 +1,16 @@
 using UnityEngine;
 using TMPro;
 
-public abstract class MainTaskBase : MonoBehaviour
+public abstract class MainTaskBase : MonoBehaviour, IMainTask
 {
     public string taskName = "Main Task";
-    public TMP_Text progressText; 
-    public float totalTimeRequired = 60f; 
+    public TMP_Text progressText;
+    public float totalTimeRequired = 60f;
     private float currentProgress = 0f;
     public bool isWorkingOnTask = false;
 
     protected virtual void Update()
     {
-        
         if (isWorkingOnTask)
         {
             currentProgress += Time.deltaTime;
@@ -27,18 +26,18 @@ public abstract class MainTaskBase : MonoBehaviour
     public virtual void StartMainTask()
     {
         isWorkingOnTask = true;
-        Debug.Log("Started working on main task.");
     }
 
     public virtual void StopMainTask()
     {
         isWorkingOnTask = false;
-        Debug.Log("Stopped working on main task.");
     }
+
+    public virtual bool ShouldBlockInput() => false;
 
     protected void UpdateProgressText()
     {
-        if (progressText != null) 
+        if (progressText != null)
         {
             float progressPercentage = (currentProgress / totalTimeRequired) * 100;
             progressText.text = $"{taskName}: {progressPercentage:F1}% completed";
