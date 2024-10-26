@@ -14,12 +14,11 @@ public class DummyMainPapers : MainTaskBase
     private Vector3 finishedPos = new Vector3(-0.395000011f, 0.50999999f, -0.119000003f);
 
     private int paperAmount = 5;
-    private List<GameObject> papers;
+    private List<GameObject> papers = new List<GameObject>();
 
     private void Start()
     {
         mainCam = Camera.current;
-        
         CreatePapers();
     }
 
@@ -30,9 +29,10 @@ public class DummyMainPapers : MainTaskBase
             GameObject paperInstance;
             paperInstance = Instantiate(paperPrefab, gameObject.transform) as GameObject;
             papers.Add(paperInstance);
-            print("PEPER" + i);
+            print(i);
         }
     }
+
     public override void StartMainTask()
     {
         base.StartMainTask();
@@ -42,6 +42,7 @@ public class DummyMainPapers : MainTaskBase
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
+
     public override void StopMainTask()
     {
         base.StopMainTask();
