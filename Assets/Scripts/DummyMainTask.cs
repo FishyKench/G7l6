@@ -7,10 +7,11 @@ public class DummyMainTask : MainTaskBase
     public TMP_Text taskPromptText;
     public TMP_Text typedText;
     public TMP_InputField playerInputField;
-    public string requiredText = "Write a short paragraph";
     public bool isTyping = false;
 
-    [SerializeField]
+    public TaskParagraphsData taskParagraphsData; // Reference to the ScriptableObject
+
+    private string requiredText = "";
     private string currentInputText = "";
 
     private void Start()
@@ -23,6 +24,13 @@ public class DummyMainTask : MainTaskBase
     {
         isTyping = true;
         base.StartMainTask();
+
+        if (taskParagraphsData != null && taskParagraphsData.paragraphs.Count > 0)
+        {
+            // Select a random paragraph from the ScriptableObject
+            requiredText = taskParagraphsData.paragraphs[Random.Range(0, taskParagraphsData.paragraphs.Count)];
+        }
+
         taskPanel.SetActive(true);
         taskPromptText.text = requiredText;
         playerInputField.gameObject.SetActive(true);
@@ -34,13 +42,14 @@ public class DummyMainTask : MainTaskBase
 
     public override void StopMainTask()
     {
-        playerInputField.text = ""; 
+        playerInputField.text = "";
         playerInputField.gameObject.SetActive(false);
         base.StopMainTask();
         taskPanel.SetActive(false);
 
         isTyping = false;
     }
+
     public override bool ShouldBlockInput()
     {
         return isTyping;
@@ -85,8 +94,6 @@ public class DummyMainTask : MainTaskBase
             CompleteTask();
         }
     }
-
-
 
     protected override void CompleteTask()
     {
