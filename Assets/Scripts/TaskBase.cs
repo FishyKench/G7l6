@@ -8,7 +8,7 @@ public abstract class TaskBase : MonoBehaviour
     public bool isTaskActive = false;
     public float currentTime;
 
-    protected GameManager gameManager; // Changed to 'protected' for subclass access
+    protected GameManager gameManager; 
 
     protected virtual void Start()
     {
@@ -40,7 +40,7 @@ public abstract class TaskBase : MonoBehaviour
         isTaskActive = false;
     }
 
-    // Marked these methods as 'abstract' so they can be overridden
+    
     protected abstract void TaskFailed();
 
     protected virtual void RewardPlayer()

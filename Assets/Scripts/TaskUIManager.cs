@@ -35,7 +35,7 @@ public class TaskUIManager : MonoBehaviour
             ClearTaskSlot(i);
         }
 
-        StartCoroutine(TaskTimerUpdate()); // Start the timer update coroutine
+        StartCoroutine(TaskTimerUpdate()); 
     }
 
     private IEnumerator TaskTimerUpdate()
@@ -49,7 +49,7 @@ public class TaskUIManager : MonoBehaviour
                 taskTimerTexts[index].text = Mathf.Ceil(task.currentTime).ToString() + "s";
                 index++;
             }
-            yield return new WaitForSeconds(1f); // Update every second
+            yield return new WaitForSeconds(1f); 
         }
     }
 

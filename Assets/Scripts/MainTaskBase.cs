@@ -9,7 +9,7 @@ public abstract class MainTaskBase : MonoBehaviour, IMainTask
     private float currentProgress = 0f;
     public bool isWorkingOnTask = false;
 
-    protected virtual void Update()
+    public virtual void Update()
     {
         if (isWorkingOnTask)
         {

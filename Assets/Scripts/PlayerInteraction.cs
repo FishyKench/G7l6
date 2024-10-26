@@ -30,7 +30,6 @@ public class PlayerInteraction : MonoBehaviour
             return;
         }
 
-        // Handle interaction input
         if (Input.GetKeyDown(KeyCode.E))
         {
             if (isInteractingWithMainTask)
@@ -80,8 +79,10 @@ public class PlayerInteraction : MonoBehaviour
 
     void StopCurrentMainTask()
     {
-        if (currentMainTask == null) return;
-
+        if (currentMainTask == null)
+        {
+            return;
+        }
         currentMainTask.StopMainTask();
         currentMainTask = null;
         isInteractingWithMainTask = false;

@@ -41,7 +41,7 @@ public class GameManager : MonoBehaviour
             TaskBase newTask = inactiveTasks[Random.Range(0, inactiveTasks.Count)];
             newTask.StartTask();
             taskQueue.Enqueue(newTask);
-            taskUIManager.UpdateTaskSlots(taskQueue); // Immediate UI update
+            taskUIManager.UpdateTaskSlots(taskQueue); 
         }
     }
 
@@ -51,7 +51,7 @@ public class GameManager : MonoBehaviour
         {
             task.EndTask();
             taskQueue = new Queue<TaskBase>(taskQueue.Where(t => t != task));
-            taskUIManager.UpdateTaskSlots(taskQueue); // Immediate UI update
+            taskUIManager.UpdateTaskSlots(taskQueue); 
         }
     }
 }

@@ -5,7 +5,7 @@ public class DummyTask3 : TaskBase, IInteractable
     protected override void TaskFailed()
     {
         Debug.Log("Dummy task failed!");
-        gameManager.CompleteTask(this); // Complete task in GameManager on failure
+        gameManager.CompleteTask(this); 
     }
 
     protected override void RewardPlayer()
@@ -19,7 +19,7 @@ public class DummyTask3 : TaskBase, IInteractable
         {
             RewardPlayer();
             gameManager.CompleteTask(this);
-            gameManager.taskUIManager.UpdateTaskSlots(gameManager.taskQueue); // Immediate UI update after interaction
+            gameManager.taskUIManager.UpdateTaskSlots(gameManager.taskQueue); 
         }
     }
 }
