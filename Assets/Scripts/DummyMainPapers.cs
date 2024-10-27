@@ -29,7 +29,6 @@ public class DummyMainPapers : MainTaskBase
             GameObject paperInstance;
             paperInstance = Instantiate(paperPrefab, gameObject.transform) as GameObject;
             papers.Add(paperInstance);
-            print(i);
         }
     }
 

@@ -24,6 +24,7 @@ public abstract class TaskBase : MonoBehaviour
 
             if (currentTime <= 0)
             {
+                TaskFailed();
                 gameManager.CompleteTask(this);
             }
         }
