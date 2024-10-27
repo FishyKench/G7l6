@@ -693,7 +693,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   taskName: Green
   taskIcon: {fileID: 21300000, guid: afea8fd5385898042be74ac73b240476, type: 3}
-  taskTime: 15
+  taskTime: 20
   isTaskActive: 0
   currentTime: 0
   stressAmount: 10
@@ -3798,7 +3798,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   taskName: Blue
   taskIcon: {fileID: 21300000, guid: 128db45197d92b34582696e51c2412ca, type: 3}
-  taskTime: 15
+  taskTime: 20
   isTaskActive: 0
   currentTime: 0
   stressAmount: 10
@@ -4403,7 +4403,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   taskName: Black
   taskIcon: {fileID: 21300000, guid: b076673f9f0b47d43b3b4a5503a400d6, type: 3}
-  taskTime: 15
+  taskTime: 20
   isTaskActive: 0
   currentTime: 0
   stressAmount: 10

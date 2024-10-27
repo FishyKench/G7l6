@@ -14,6 +14,11 @@ public class StressManager : MonoBehaviour
         currentStress += amount;
         currentStress = Mathf.Clamp(currentStress, 0, maxStress);
         targetFillAmount = currentStress / maxStress;
+
+        if (currentStress >= maxStress)
+        {
+            HandleMaxStress();
+        }
     }
 
     public void RemoveStress(float amount)
@@ -32,9 +37,18 @@ public class StressManager : MonoBehaviour
     {
         if (stressImage != null)
         {
-            stressImage.fillAmount = Mathf.Lerp(stressImage.fillAmount, targetFillAmount, Time.deltaTime * fillSpeed);
+            if(currentStress <= 90)
+            {
+                stressImage.fillAmount = Mathf.Lerp(stressImage.fillAmount, targetFillAmount, Time.deltaTime * fillSpeed);
+            }
+            else
+            {
+                stressImage.fillAmount = Mathf.MoveTowards(stressImage.fillAmount,targetFillAmount,fillSpeed * Time.deltaTime);
+            }
+            
         }
     }
+  
 
     private void HandleMaxStress()
     {
