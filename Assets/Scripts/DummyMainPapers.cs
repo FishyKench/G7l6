@@ -34,7 +34,7 @@ public class DummyMainPapers : MainTaskBase
         }
         if (papers.Count > 0)
         {
-            papers[currentPaperIndex].transform.position = currentPos;
+            papers[currentPaperIndex].transform.position = paperOffset.position;
         }
     }
 
@@ -61,8 +61,8 @@ public class DummyMainPapers : MainTaskBase
 
     public void VerifyPaper(Papers paper, Papers.PaperStatus status)
     {
-        bool isCorrect = (status == Papers.PaperStatus.Accepted && !paper.isFraudPaper) ||
-                         (status == Papers.PaperStatus.Rejected && paper.isFraudPaper);
+        bool isCorrect = (status == Papers.PaperStatus.Accepted && !paper.isFraudPaper) || (status == Papers.PaperStatus.Rejected && paper.isFraudPaper);
+
 
         Debug.Log(isCorrect ? "Correct choice!" : "Wrong choice!");
 
@@ -73,9 +73,5 @@ public class DummyMainPapers : MainTaskBase
     private void AdvanceToNextPaper()
     {
         currentPaperIndex++;
-        if (currentPaperIndex < papers.Count)
-        {
-            papers[currentPaperIndex].transform.position = currentPos;
-        }
     }
 }
