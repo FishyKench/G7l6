@@ -6380,6 +6380,11 @@ PrefabInstance:
   m_Modification:
     m_TransformParent: {fileID: 784391827}
     m_Modifications:
+    - target: {fileID: 2806305394215325894, guid: fb5a3ee54ad8ce849972e5f999651149,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: 360002dee14ffcc41862ec8ccbc14a38, type: 2}
     - target: {fileID: 3448378548891914701, guid: fb5a3ee54ad8ce849972e5f999651149,
         type: 3}
       propertyPath: m_Name
@@ -16806,6 +16811,11 @@ PrefabInstance:
   m_Modification:
     m_TransformParent: {fileID: 784391827}
     m_Modifications:
+    - target: {fileID: 2898952059031812120, guid: ef307dcdfce7d924aa39af8363af579b,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: f57b444f75b60a54f956b89ffb08433d, type: 2}
     - target: {fileID: 3512940922167007767, guid: ef307dcdfce7d924aa39af8363af579b,
         type: 3}
       propertyPath: m_RootOrder
@@ -21195,6 +21205,11 @@ PrefabInstance:
       propertyPath: m_Name
       value: Stool (1)
       objectReference: {fileID: 0}
+    - target: {fileID: 8983428247548825445, guid: 8c655c3ff4b6d61419a993929b7453f9,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: f57b444f75b60a54f956b89ffb08433d, type: 2}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 8c655c3ff4b6d61419a993929b7453f9, type: 3}
 --- !u!1 &378137068
@@ -45455,6 +45470,11 @@ PrefabInstance:
       propertyPath: m_Name
       value: Stool (3)
       objectReference: {fileID: 0}
+    - target: {fileID: 8983428247548825445, guid: 8c655c3ff4b6d61419a993929b7453f9,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: f57b444f75b60a54f956b89ffb08433d, type: 2}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 8c655c3ff4b6d61419a993929b7453f9, type: 3}
 --- !u!1 &869972354 stripped
@@ -45798,6 +45818,11 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 4333816660155623541, guid: 79caa1863b1bec144988725004cb47a5,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: f57b444f75b60a54f956b89ffb08433d, type: 2}
     - target: {fileID: 6389171696233406503, guid: 79caa1863b1bec144988725004cb47a5,
         type: 3}
       propertyPath: m_Name
@@ -57180,6 +57205,11 @@ PrefabInstance:
       propertyPath: m_Name
       value: Stool
       objectReference: {fileID: 0}
+    - target: {fileID: 8983428247548825445, guid: 8c655c3ff4b6d61419a993929b7453f9,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: f57b444f75b60a54f956b89ffb08433d, type: 2}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 8c655c3ff4b6d61419a993929b7453f9, type: 3}
 --- !u!1 &1092550581
@@ -57849,6 +57879,16 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: ef4c0b9754f1c404c9e1e0ad9409a677, type: 2}
+    - target: {fileID: 1537877233726157400, guid: f425d7091202b3b46ad9b40897243e75,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: 360002dee14ffcc41862ec8ccbc14a38, type: 2}
+    - target: {fileID: 1537877233824192198, guid: f425d7091202b3b46ad9b40897243e75,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: 360002dee14ffcc41862ec8ccbc14a38, type: 2}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: f425d7091202b3b46ad9b40897243e75, type: 3}
 --- !u!1001 &1115851579
@@ -67232,6 +67272,11 @@ PrefabInstance:
       propertyPath: m_Name
       value: Stool (2)
       objectReference: {fileID: 0}
+    - target: {fileID: 8983428247548825445, guid: 8c655c3ff4b6d61419a993929b7453f9,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: f57b444f75b60a54f956b89ffb08433d, type: 2}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 8c655c3ff4b6d61419a993929b7453f9, type: 3}
 --- !u!1001 &1376494487
@@ -90939,6 +90984,16 @@ PrefabInstance:
       propertyPath: m_Name
       value: Trash Bin
       objectReference: {fileID: 0}
+    - target: {fileID: 2630204195391667481, guid: 4e6a17e3b8dd0a34aa1d09fa67307554,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: 360002dee14ffcc41862ec8ccbc14a38, type: 2}
+    - target: {fileID: 3035569108155964138, guid: 4e6a17e3b8dd0a34aa1d09fa67307554,
+        type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: f57b444f75b60a54f956b89ffb08433d, type: 2}
     - target: {fileID: 8823669716300248769, guid: 4e6a17e3b8dd0a34aa1d09fa67307554,
         type: 3}
       propertyPath: m_RootOrder
@@ -96303,6 +96358,7 @@ GameObject:
   - component: {fileID: 9179498330914739354}
   - component: {fileID: 3292842535411051805}
   - component: {fileID: 9179498330914739355}
+  - component: {fileID: 9179498330914739356}
   m_Layer: 7
   m_Name: Switch
   m_TagString: Untagged
@@ -96774,6 +96830,24 @@ BoxCollider:
   serializedVersion: 2
   m_Size: {x: 0.16557035, y: 0.2686231, z: 0.06361388}
   m_Center: {x: -0.0000014640391, y: 0.0000001937151, z: 0.023805467}
+--- !u!114 &9179498330914739356
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8572243526077185367}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5fea29bb7c508c244a1f805a5fd3fc4d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  outlineMode: 0
+  outlineColor: {r: 1, g: 1, b: 1, a: 1}
+  outlineWidth: 10
+  precomputeOutline: 0
+  bakeKeys: []
+  bakeValues: []
 --- !u!23 &9179498331237144932
 MeshRenderer:
   m_ObjectHideFlags: 0

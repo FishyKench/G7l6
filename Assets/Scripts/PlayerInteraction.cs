@@ -9,6 +9,9 @@ public class PlayerInteraction : MonoBehaviour
     private PlayerMovementAdvanced playerMovement;
     private bool isInteractingWithMainTask = false;
 
+    private GameObject previousObjectLookedAt;
+    private Outline previousOutline; // Cached outline component
+
     void Start()
     {
         playerCamera = Camera.main;
@@ -17,6 +20,41 @@ public class PlayerInteraction : MonoBehaviour
 
     void Update()
     {
+        RaycastHit hit;
+        if (Physics.Raycast(playerCamera.transform.position, playerCamera.transform.forward, out hit, interactionRange))
+        {
+            GameObject objectLookedAt = hit.collider.gameObject;
+
+            if (objectLookedAt.layer == 7)
+            {
+                if (objectLookedAt != previousObjectLookedAt)
+                {
+                    if (previousOutline != null)
+                    {
+                        previousOutline.enabled = false;
+                    }
+
+                    Outline newOutline = objectLookedAt.GetComponent<Outline>();
+                    if (newOutline != null)
+                    {
+                        newOutline.enabled = true;
+                    }
+
+                    previousObjectLookedAt = objectLookedAt;
+                    previousOutline = newOutline;
+                }
+            }
+        }
+        else
+        {
+            if (previousOutline != null)
+            {
+                previousOutline.enabled = false;
+                previousOutline = null;
+                previousObjectLookedAt = null;
+            }
+        }
+
         if (Input.GetKeyDown(KeyCode.Escape) && isInteractingWithMainTask)
         {
             StopCurrentMainTask();
@@ -40,7 +78,6 @@ public class PlayerInteraction : MonoBehaviour
             }
         }
     }
-
     void TryInteract()
     {
         if (playerCamera == null || isInteractingWithMainTask) return;
