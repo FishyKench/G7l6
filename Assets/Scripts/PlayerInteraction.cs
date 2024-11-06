@@ -10,7 +10,7 @@ public class PlayerInteraction : MonoBehaviour
     private bool isInteractingWithMainTask = false;
 
     private GameObject previousObjectLookedAt;
-    private Outline previousOutline; // Cached outline component
+    private Outline previousOutline;
 
     void Start()
     {
@@ -29,30 +29,25 @@ public class PlayerInteraction : MonoBehaviour
             {
                 if (objectLookedAt != previousObjectLookedAt)
                 {
-                    if (previousOutline != null)
-                    {
-                        previousOutline.enabled = false;
-                    }
+                    ClearPreviousOutline();
 
                     Outline newOutline = objectLookedAt.GetComponent<Outline>();
                     if (newOutline != null)
                     {
                         newOutline.enabled = true;
+                        previousOutline = newOutline;
+                        previousObjectLookedAt = objectLookedAt;
                     }
-
-                    previousObjectLookedAt = objectLookedAt;
-                    previousOutline = newOutline;
                 }
+            }
+            else
+            {
+                ClearPreviousOutline();
             }
         }
         else
         {
-            if (previousOutline != null)
-            {
-                previousOutline.enabled = false;
-                previousOutline = null;
-                previousObjectLookedAt = null;
-            }
+            ClearPreviousOutline();
         }
 
         if (Input.GetKeyDown(KeyCode.Escape) && isInteractingWithMainTask)
@@ -78,6 +73,17 @@ public class PlayerInteraction : MonoBehaviour
             }
         }
     }
+
+    void ClearPreviousOutline()
+    {
+        if (previousOutline != null)
+        {
+            previousOutline.enabled = false;
+            previousOutline = null;
+            previousObjectLookedAt = null;
+        }
+    }
+
     void TryInteract()
     {
         if (playerCamera == null || isInteractingWithMainTask) return;
