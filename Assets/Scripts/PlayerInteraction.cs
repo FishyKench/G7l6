@@ -17,14 +17,12 @@ public class PlayerInteraction : MonoBehaviour
 
     void Update()
     {
-        
         if (Input.GetKeyDown(KeyCode.Escape) && isInteractingWithMainTask)
         {
             StopCurrentMainTask();
             return;
         }
 
-        
         if (isInteractingWithMainTask && currentMainTask != null && currentMainTask.ShouldBlockInput())
         {
             return;
@@ -54,6 +52,13 @@ public class PlayerInteraction : MonoBehaviour
             if (mainTask != null)
             {
                 StartMainTask(mainTask);
+                return;
+            }
+
+            IInteractable interactable = hit.collider.GetComponent<IInteractable>();
+            if (interactable != null)
+            {
+                interactable.Interact();
                 return;
             }
 
