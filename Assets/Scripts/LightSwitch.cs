@@ -17,6 +17,7 @@ public class LightSwitch : MonoBehaviour,IInteractable
             foreach (var light in lights)
             {
                 light.enabled = false;
+                light.GetComponentInParent<MeshRenderer>().materials[1].DisableKeyword("_EMISSION");
                 lightsOn = false;
             }
         }
@@ -25,6 +26,7 @@ public class LightSwitch : MonoBehaviour,IInteractable
             foreach (var light in lights)
             {
                 light.enabled = true;
+                light.GetComponentInParent<MeshRenderer>().materials[1].EnableKeyword("_EMISSION");
                 lightsOn = true;
             }
         }
