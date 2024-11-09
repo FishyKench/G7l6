@@ -1,17 +1,15 @@
 using System.Collections;
 using UnityEngine;
 
-public class TvSubTask : TaskBase, IInteractable
+public class TvSubTask : TaskBase
 {
-    [SerializeField]
-    private int stressAmount = 10;
-
     private StressManager stressManager;
-
     private bool isAddingStress = true;
 
-    [SerializeField]
-    private AudioSource TvStatic;
+    public Renderer tvRenderer;
+    public Material normalTvMat;
+    public Material staticTvMat;
+    [SerializeField] private AudioSource TvStatic;
 
     protected override void Start()
     {
@@ -43,7 +41,11 @@ public class TvSubTask : TaskBase, IInteractable
 
     private IEnumerator AddStressPeriodically(float interval, float stressPoints)
     {
-            TvStatic.Play();
+        TvStatic.Play();
+        Material[] materials = tvRenderer.materials; 
+        materials[1] = staticTvMat; 
+        tvRenderer.materials = materials;
+
         while (isAddingStress && isTaskActive)
         {
             yield return new WaitForSeconds(interval);
@@ -54,21 +56,20 @@ public class TvSubTask : TaskBase, IInteractable
         }
     }
 
-    private void StopAddingStress()
+    public void StopAddingStress()
     {
         isAddingStress = false;
         StopAllCoroutines();
         TvStatic.Stop();
+        Material[] materials = tvRenderer.materials;
+        materials[1] = normalTvMat;
+        tvRenderer.materials = materials;
     }
 
-    public void Interact()
+    public void CompleteTask()
     {
-        if (isTaskActive)
-        {
-            StopAddingStress();
             RewardPlayer();
             gameManager.CompleteTask(this);
             gameManager.taskUIManager.UpdateTaskSlots(gameManager.taskQueue);
-        }
     }
 }
