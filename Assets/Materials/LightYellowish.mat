@@ -14,7 +14,7 @@ Material:
   m_InvalidKeywords: []
   m_LightmapFlags: 1
   m_EnableInstancingVariants: 0
-  m_DoubleSidedGI: 0
+  m_DoubleSidedGI: 1
   m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
@@ -68,7 +68,7 @@ Material:
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
     - _GlossMapScale: 1
-    - _Glossiness: 1
+    - _Glossiness: 0
     - _GlossyReflections: 1
     - _Metallic: 0
     - _Mode: 0
@@ -80,6 +80,6 @@ Material:
     - _UVSec: 0
     - _ZWrite: 1
     m_Colors:
-    - _Color: {r: 0.5577163, g: 0.6919834, b: 0.7830189, a: 0.972549}
+    - _Color: {r: 1, g: 0.972549, b: 0.8509804, a: 0.972549}
     - _EmissionColor: {r: 2.5193918, g: 1.9258177, b: 1.2926722, a: 1}
   m_BuildTextureStacks: []
