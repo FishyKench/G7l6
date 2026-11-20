@@ -1382,6 +1382,113 @@ public static class HouseBuilder
         EditorUtility.SetDirty(layout);
     }
 
+    // ------------------------------------------------------------------ snug furniture colliders
+
+    static readonly System.Text.RegularExpressions.Regex SeatNames =
+        new System.Text.RegularExpressions.Regex("chair|stool|puff", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// One snug box per part of the model (seat, back, legs, wheels...) instead of one big box around the whole
+    /// thing, so you can walk right up to furniture. Chairs, stools and bean bags are trimmed a bit more so you can
+    /// brush past them. Tiny bits (knobs, buttons) get nothing. Returns how many boxes were added.
+    /// </summary>
+    static int TightColliders(GameObject go)
+    {
+        bool seat = SeatNames.IsMatch(go.name);
+        int added = 0;
+        foreach (var r in go.GetComponentsInChildren<MeshRenderer>())
+        {
+            var mf = r.GetComponent<MeshFilter>();
+            if (!mf || !mf.sharedMesh) continue;
+            var b = mf.sharedMesh.bounds;
+            var t = r.transform;
+            Vector3 world = Vector3.Scale(b.size, Abs(t.lossyScale));
+            if (Mathf.Max(world.x, Mathf.Max(world.y, world.z)) < 0.06f) continue;
+            Vector3 size = b.size;
+            if (seat)
+            {
+                // Trim the sides that lie flat (whichever local axes point sideways in the world).
+                if (Mathf.Abs(t.TransformDirection(Vector3.right).y) < 0.5f) size.x *= 0.8f;
+                if (Mathf.Abs(t.TransformDirection(Vector3.up).y) < 0.5f) size.y *= 0.8f;
+                if (Mathf.Abs(t.TransformDirection(Vector3.forward).y) < 0.5f) size.z *= 0.8f;
+            }
+            var box = r.gameObject.AddComponent<BoxCollider>();
+            box.center = b.center;
+            box.size = size;
+            added++;
+        }
+        if (added == 0) FitBox(go);
+        return added;
+    }
+
+    /// <summary>
+    /// Menu: G7l6 > Fix Furniture Colliders. Swaps every piece of furniture's big box collider for snug ones (see
+    /// TightColliders) in the saved NewHouse scene, and drops colliders that stick out past the model. Nothing
+    /// else changes. Re-bakes the cat's walk map and saves the scene.
+    /// </summary>
+    [MenuItem("G7l6/Fix Furniture Colliders")]
+    public static void FixFurnitureColliders()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[Colliders] Stop Play mode first."); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != TargetScene)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(TargetScene, OpenSceneMode.Single);
+        }
+        var house = scene.GetRootGameObjects().FirstOrDefault(g => g.name == "NewHouse");
+        var furniture = house ? house.transform.Find("Furniture") : null;
+        if (!furniture) { Debug.LogWarning("[Colliders] No NewHouse/Furniture in the scene."); return; }
+
+        int pieces = 0, boxes = 0;
+        var oversized = new List<string>();
+        foreach (Transform room in furniture)
+        {
+            foreach (var piece in room.Cast<Transform>().ToList())
+            {
+                if (!piece.gameObject.activeInHierarchy) continue;
+                if (piece.GetComponentInChildren<Carryable>(true)) continue; // things you pick up keep one simple box
+                var colliders = piece.GetComponentsInChildren<Collider>().Where(c => !c.isTrigger && c.enabled).ToArray();
+                if (colliders.Length == 0) continue;
+                var renderers = piece.GetComponentsInChildren<MeshRenderer>().Where(r => r.GetComponent<MeshFilter>() && r.GetComponent<MeshFilter>().sharedMesh).ToArray();
+                if (renderers.Length == 0) continue;
+
+                var visual = renderers[0].bounds;
+                foreach (var r in renderers) visual.Encapsulate(r.bounds);
+                bool sticksOut = colliders.Any(c => Overhang(c.bounds, visual) > 0.12f);
+                if (sticksOut) oversized.Add($"{room.name}/{piece.name}");
+
+                foreach (var c in colliders)
+                    if (c is BoxCollider || sticksOut) RemoveCollider(c); // our boxes always; a model's own collider only if it doesn't fit the model
+                if (piece.GetComponentsInChildren<Collider>().Any(c => !c.isTrigger && c.enabled)) continue;
+                boxes += TightColliders(piece.gameObject);
+                pieces++;
+            }
+        }
+
+        Physics.SyncTransforms();
+        HouseTaskSetup.PrepareCatForHouse();
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        string message = $"Snug colliders on {pieces} pieces of furniture ({boxes} boxes).";
+        if (oversized.Count > 0) message += $"\nThese had colliders sticking out past the model:\n- " + string.Join("\n- ", oversized);
+        Debug.Log("[Colliders] " + message + "\nThe cat's walk map was re-baked and the scene is saved.");
+    }
+
+    /// <summary>How far (metres) a collider sticks out past the model on its worst side.</summary>
+    static float Overhang(Bounds collider, Bounds model)
+    {
+        Vector3 low = model.min - collider.min, high = collider.max - model.max;
+        return Mathf.Max(0f, Mathf.Max(Mathf.Max(low.x, low.y), Mathf.Max(low.z, Mathf.Max(high.x, Mathf.Max(high.y, high.z)))));
+    }
+
+    static void RemoveCollider(Collider c)
+    {
+        // A collider that comes with the prefab can't be deleted from the scene copy - switch it off instead.
+        if (PrefabUtility.IsPartOfPrefabInstance(c) && !PrefabUtility.IsAddedComponentOverride(c)) c.enabled = false;
+        else Object.DestroyImmediate(c);
+    }
+
     // ---- placement with clearance checks
 
     static readonly Dictionary<Transform, Room> roomOfGroup = new Dictionary<Transform, Room>();
@@ -1663,7 +1770,7 @@ public static class HouseBuilder
         if (mounted) { wallArt.TryGetValue(room, out int n); wallArt[room] = n + 1; }
         var b = Bounds(go);
         if (!mounted && b.size.y >= 0.06f) footprints.Add((room.floor, new Rect(b.min.x, b.min.z, b.size.x, b.size.z), go));
-        if (!go.GetComponentsInChildren<Collider>().Any(c => !c.isTrigger)) FitBox(go);
+        if (!go.GetComponentsInChildren<Collider>().Any(c => !c.isTrigger)) TightColliders(go);
     }
 
     static GameObject Skipped(string prefabs, string roomName)

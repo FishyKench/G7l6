@@ -10,6 +10,11 @@ public class StressManager : MonoBehaviour
     public float currentStress = 0f;
     public float maxStress = 100f;
     public float fillSpeed = 0.5f;
+    [Tooltip("All stress you get is multiplied by this (lower = a calmer afternoon).")]
+    public float gainMultiplier = 0.55f;
+    [Tooltip("Stress that melts away per second while nothing is going wrong (no task stressing you out).")]
+    public float calmRecoveryPerSecond = 0.6f;
+    float lastGain;
     private float targetFillAmount;
     private bool maxedOut;
 
@@ -22,7 +27,8 @@ public class StressManager : MonoBehaviour
 
     public void AddStress(float amount)
     {
-        currentStress = Mathf.Clamp(currentStress + amount, 0, maxStress);
+        if (amount > 0f) lastGain = Time.time;
+        currentStress = Mathf.Clamp(currentStress + amount * gainMultiplier, 0, maxStress);
         targetFillAmount = Normalized;
 
         if (currentStress >= maxStress && !maxedOut)
@@ -41,6 +47,9 @@ public class StressManager : MonoBehaviour
 
     private void Update()
     {
+        // Calm down slowly when nothing has stressed you for a couple of seconds.
+        if (calmRecoveryPerSecond > 0f && currentStress > 0f && Time.time - lastGain > 2f)
+            RemoveStress(calmRecoveryPerSecond * Time.deltaTime);
         UpdateStressUI();
     }
 
@@ -57,7 +66,7 @@ public class StressManager : MonoBehaviour
 
     private void HandleMaxStress()
     {
-        // No game over yet - just let the player know.
-        GameHUD.Toast("You're completely stressed out!", GameHUD.Bad);
+        // The DayManager gives you a panic countdown to calm down before it becomes a meltdown.
+        GameHUD.Toast("PANIC! Calm down before you melt down!", GameHUD.Bad);
     }
 }

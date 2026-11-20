@@ -23,6 +23,9 @@ public class GarageDoor : MonoBehaviour, IInteractable, IPromptProvider
 
     public void Interact() => open = !open;
 
+    public bool IsOpen => open;
+    public void SetOpen(bool value) => open = value;
+
     void Update()
     {
         float target = open ? 1f : 0f;

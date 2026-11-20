@@ -11,6 +11,7 @@ using UnityEngine;
 ///   cat-size.request  - scale the cat (file contains the size, e.g. 1.5)
 ///   fix-stairs.request - smooth ramp over the stairs + re-bake the cat's walk map
 ///   player-room.request - redo just your bedroom as the gaming room (the rest of NewHouse stays)
+///   fix-colliders.request - snug furniture colliders in NewHouse (nothing else changes)
 /// </summary>
 [InitializeOnLoad]
 static class PendingSetup
@@ -21,6 +22,7 @@ static class PendingSetup
     const string CatOverhaulRequest = "Library/G7l6/cat-overhaul.request";
     const string BuildHouseRequest = "Library/G7l6/build-house.request";
     const string PlayerRoomRequest = "Library/G7l6/player-room.request";
+    const string CollidersRequest = "Library/G7l6/fix-colliders.request";
     const double GiveUpAfterSeconds = 120;
 
     static double startedAt;
@@ -29,7 +31,7 @@ static class PendingSetup
     static PendingSetup()
     {
         if (!File.Exists(AddCatRequest) && !File.Exists(CatSizeRequest) && !File.Exists(FixStairsRequest) && !File.Exists(CatOverhaulRequest)
-            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest)) return;
+            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest)) return;
         startedAt = EditorApplication.timeSinceStartup;
         EditorApplication.update += Poll;
     }
@@ -46,7 +48,8 @@ static class PendingSetup
         bool overhaul = File.Exists(CatOverhaulRequest);
         bool buildHouse = File.Exists(BuildHouseRequest);
         bool playerRoom = File.Exists(PlayerRoomRequest);
-        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom) { EditorApplication.update -= Poll; return; }
+        bool colliders = File.Exists(CollidersRequest);
+        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders) { EditorApplication.update -= Poll; return; }
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
 
         // Wait for the cat model to finish importing.
@@ -93,6 +96,11 @@ static class PendingSetup
         {
             File.Delete(PlayerRoomRequest);
             HouseBuilder.RedoPlayerRoom();
+        }
+        if (colliders)
+        {
+            File.Delete(CollidersRequest);
+            HouseBuilder.FixFurnitureColliders();
         }
     }
 }

@@ -37,6 +37,7 @@ public class MiniMap : MonoBehaviour
     static readonly Color HazardColor = new Color32(224, 53, 43, 255);
     static readonly Color HomeworkColor = new Color32(52, 120, 206, 255);
     static readonly Color ToolColor = new Color32(46, 150, 68, 255);
+    static readonly Color MomColor = new Color32(196, 70, 160, 255);
 
     HouseLayout layout;
     Transform player;
@@ -66,6 +67,7 @@ public class MiniMap : MonoBehaviour
     struct Entry
     {
         public int number;
+        public string badge; // shown instead of the number (e.g. "M" for Mom)
         public Vector3 world;
         public Color color;
         public string name;
@@ -338,6 +340,11 @@ public class MiniMap : MonoBehaviour
                 break;
             }
         }
+
+        // Mom, once she's home and inspecting.
+        var day = DayManager.Instance;
+        if (day && day.Mom)
+            entries.Insert(0, new Entry { badge = "M", world = day.Mom.transform.position, color = MomColor, name = "Mom is checking", pulse = true });
     }
 
     ItemType? Needs(TaskBase task) => task switch
@@ -389,7 +396,7 @@ public class MiniMap : MonoBehaviour
         pin.edge.rectTransform.sizeDelta = Vector2.one * (size + 4f);
         pin.body.rectTransform.sizeDelta = Vector2.one * size;
         pin.body.color = e.color;
-        pin.number.text = e.number.ToString();
+        pin.number.text = e.badge ?? e.number.ToString();
         pin.number.fontSize = e.tool ? 9f : 12f;
 
         pin.pointer.gameObject.SetActive(onRim);
@@ -474,7 +481,7 @@ public class MiniMap : MonoBehaviour
             row.badge.color = e.color;
             row.badge.rectTransform.sizeDelta = Vector2.one * size;
             row.badge.rectTransform.anchoredPosition = new Vector2(indent + 10f, 0);
-            row.number.text = e.number.ToString();
+            row.number.text = e.badge ?? e.number.ToString();
             row.number.fontSize = e.tool ? 9f : 11f;
             row.number.rectTransform.anchoredPosition = new Vector2(indent + 10f, 0);
             row.name.text = e.tool ? "grab the " + e.name.ToLowerInvariant() : e.name.ToUpperInvariant();

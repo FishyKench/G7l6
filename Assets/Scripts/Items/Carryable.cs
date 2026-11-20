@@ -56,6 +56,24 @@ public class Carryable : MonoBehaviour, IInteractable, IPromptProvider
         homeScale = transform.localScale;
     }
 
+    /// <summary>Lying where it belongs (Mom notices things that aren't).</summary>
+    public bool IsHome
+    {
+        get
+        {
+            if (!initialized) return true;
+            if (IsHeld || TakenBy) return false;
+            return Vector3.Distance(transform.position, homePosition) < HomeRadius;
+        }
+    }
+
+    /// <summary>Close enough to where it belongs that dropping it puts it back properly.</summary>
+    public bool NearHome(Vector3 point) => initialized && Vector3.Distance(Flat(point), Flat(homePosition)) < HomeRadius * 1.8f
+                                           && Mathf.Abs(point.y - homePosition.y) < 1.6f;
+
+    float HomeRadius => 0.9f * (HouseLayout.Instance ? HouseLayout.Instance.scale : 1f);
+    static Vector3 Flat(Vector3 v) { v.y = 0f; return v; }
+
     public string Prompt
     {
         get

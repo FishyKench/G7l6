@@ -17,6 +17,8 @@ public class GameManager : MonoBehaviour
     public float firstTaskDelay = 8f;
     [Tooltip("Random wait (seconds) between new tasks.")]
     public Vector2 timeBetweenTasks = new Vector2(15f, 30f);
+    [Tooltip("No new random tasks while this is on (e.g. once Mom is home).")]
+    public bool spawningPaused;
 
     readonly List<TaskBase> tasks = new List<TaskBase>();
     readonly List<TaskBase> hudTasks = new List<TaskBase>();
@@ -29,6 +31,7 @@ public class GameManager : MonoBehaviour
         // Make sure the HUD and exhaustion exist even if the setup tool wasn't run.
         if (!FindObjectOfType<GameHUD>()) new GameObject("HUD").AddComponent<GameHUD>();
         if (!FindObjectOfType<ExhaustionManager>()) gameObject.AddComponent<ExhaustionManager>();
+        if (!FindObjectOfType<DayManager>()) gameObject.AddComponent<DayManager>(); // the clock, Mom coming home, the report card
     }
 
     void Start()
@@ -62,7 +65,7 @@ public class GameManager : MonoBehaviour
         yield return new WaitForSeconds(firstTaskDelay);
         while (true)
         {
-            if (ActiveRandomTaskCount() < maxActiveTasks)
+            if (!spawningPaused && ActiveRandomTaskCount() < maxActiveTasks)
                 TryStartRandomTask();
             yield return new WaitForSeconds(Random.Range(timeBetweenTasks.x, timeBetweenTasks.y));
         }

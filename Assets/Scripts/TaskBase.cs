@@ -45,6 +45,9 @@ public abstract class TaskBase : MonoBehaviour
 
     protected StressManager Stress => StressManager.Instance;
 
+    /// <summary>Any task finishing: (task, true = completed / false = failed). The day's report card counts these.</summary>
+    public static event System.Action<TaskBase, bool> Ended;
+
     public void Activate()
     {
         if (IsActive) return;
@@ -93,6 +96,7 @@ public abstract class TaskBase : MonoBehaviour
         End();
         if (Stress) Stress.RemoveStress(stressReliefOnComplete);
         OnCompleted();
+        Ended?.Invoke(this, true);
         GameHUD.Toast(message ?? taskName + " done!", GameHUD.Good);
     }
 
@@ -103,6 +107,7 @@ public abstract class TaskBase : MonoBehaviour
         End();
         if (Stress) Stress.AddStress(stressOnFail);
         OnFailed();
+        Ended?.Invoke(this, false);
         GameHUD.Toast(message ?? taskName + " failed!", GameHUD.Bad);
     }
 

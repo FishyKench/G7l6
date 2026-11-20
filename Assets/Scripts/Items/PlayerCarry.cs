@@ -50,6 +50,14 @@ public class PlayerCarry : MonoBehaviour
         var item = Held;
         Held = null;
 
+        // Dropped where it belongs? Put it back neatly (Mom checks).
+        if (item.NearHome(transform.position))
+        {
+            item.ReturnHome(true);
+            GameHUD.Toast($"Put the {item.displayName} back", GameHUD.Good);
+            return;
+        }
+
         var cam = Camera.main ? Camera.main.transform : transform;
         item.PlaceAt(FindDropPoint(cam), cam.eulerAngles.y);
     }
