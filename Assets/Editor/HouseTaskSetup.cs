@@ -3,6 +3,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
@@ -58,6 +59,7 @@ public static class HouseTaskSetup
         SetUpOven();
         SetUpLaundry();
         SetUpCeilingLeak();
+        SetUpCat();
         AddSceneToBuild(scene);
 
         Undo.CollapseUndoOperations(undoGroup);
@@ -97,6 +99,350 @@ public static class HouseTaskSetup
     }
 
     const string HudFontPath = "Assets/Fonts/Pinkend SDF.asset";
+    public const string KittyPrefabPath = "Assets/ithappy/Animals_FREE/Prefabs/Kitty_001.prefab";
+    const string WalkMapPath = "Assets/Navigation/Cat Walk Map.asset";
+    const string HouseScenePath = "Assets/Scenes/HouseScene.unity";
+
+    // ------------------------------------------------------------------ cat
+
+    /// <summary>Adds just the cat (and its walk map) to the house scene and saves it.</summary>
+    [MenuItem("G7l6/Add Cat To House")]
+    public static void AddCatToHouse()
+    {
+        if (EditorApplication.isPlaying) { EditorUtility.DisplayDialog("Add Cat", "Stop Play mode first.", "OK"); return; }
+
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != HouseScenePath)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(HouseScenePath, OpenSceneMode.Single);
+        }
+
+        done.Clear(); problems.Clear(); created.Clear();
+        Undo.IncrementCurrentGroup();
+        int undoGroup = Undo.GetCurrentGroup();
+        Undo.SetCurrentGroupName("Add Cat To House");
+        Physics.SyncTransforms();
+
+        SetUpCat();
+
+        Undo.CollapseUndoOperations(undoGroup);
+        EditorSceneManager.MarkSceneDirty(scene);
+        bool saved = problems.Count == 0 && EditorSceneManager.SaveScene(scene);
+
+        if (created.Count > 0)
+        {
+            Selection.activeObject = created[0];
+            EditorGUIUtility.PingObject(created[0]);
+            SceneView.FrameLastActiveSceneView();
+        }
+
+        string message = "Done:\n- " + string.Join("\n- ", done);
+        if (problems.Count > 0) message += "\n\nNeeds a look:\n- " + string.Join("\n- ", problems);
+        message += saved ? "\n\nThe scene is saved. Press Play to meet the cat." : "\n\nSave the scene (Ctrl+S) to keep it.";
+        Debug.Log("[Add Cat]\n" + message);
+        EditorUtility.DisplayDialog("The cat is in the house", message, "OK");
+    }
+
+    static void SetUpCat()
+    {
+        var brain = Object.FindObjectOfType<CatBrain>(true);
+        GameObject cat = brain ? brain.gameObject : null;
+        if (!cat)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(KittyPrefabPath);
+            if (!prefab)
+            {
+                problems.Add("The cat model isn't in the project yet: import 'Animals FREE' by ithappy (Window > Package Manager > My Assets), then run this again");
+                return;
+            }
+            cat = (GameObject)PrefabUtility.InstantiatePrefab(prefab, SceneManager.GetActiveScene());
+            cat.name = "Cat";
+
+            var room = FindActive("Lounge/LivingRoom") ?? FindActive("LivingRoom");
+            if (room)
+            {
+                var b = WorldBounds(room);
+                float floor = FloorY(new Vector3(b.center.x, b.min.y + 1f, b.center.z), room.transform, b.min.y);
+                cat.transform.position = new Vector3(b.center.x, floor, b.center.z);
+            }
+            cat.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+            Undo.RegisterCreatedObjectUndo(cat, "Add cat");
+            created.Add(cat);
+            done.Add("Added the cat to the living room (it's selected - move it if you like)");
+        }
+
+        // The model ships with keyboard-controlled movement scripts - switch them off, the cat drives itself.
+        foreach (var mb in cat.GetComponents<MonoBehaviour>())
+        {
+            if (!mb || !mb.enabled || mb.GetType().Namespace != "Controller") continue;
+            Undo.RecordObject(mb, "Disable cat input");
+            mb.enabled = false;
+            Dirty(mb);
+        }
+
+        var agent = Ensure<NavMeshAgent>(cat);
+        Undo.RecordObject(agent, "Configure cat");
+        agent.agentTypeID = 0;
+        agent.radius = 0.18f / Mathf.Max(0.01f, cat.transform.localScale.x); // same size as the walk map, whatever the cat's scale
+        agent.height = 0.45f;
+        agent.baseOffset = 0f;
+        agent.speed = 1f;
+        agent.angularSpeed = 420f;
+        agent.acceleration = 10f;
+        agent.stoppingDistance = 0.3f;
+        agent.autoBraking = true;
+        agent.obstacleAvoidanceType = ObstacleAvoidanceType.LowQualityObstacleAvoidance;
+        agent.enabled = false; // the cat switches it on once its walk map is loaded
+        Dirty(agent);
+
+        brain = Ensure<CatBrain>(cat);
+        Undo.RecordObject(brain, "Configure cat");
+        brain.font = AssetDatabase.LoadAssetAtPath<TMPro.TMP_FontAsset>(HudFontPath);
+        Dirty(brain);
+        LinkCatToHouse();
+
+        EnsureCollider(cat);
+        EnsureOutline(cat);
+        done.Add("Cat: wanders, steals the remote / clothes, naps on the laundry (E to pet, take back or shoo)");
+
+        BakeWalkMap();
+    }
+
+    /// <summary>Scales the cat in the open house scene (keeps its walking footprint the same).</summary>
+    public static void SetCatSize(float size)
+    {
+        if (EditorApplication.isPlaying) return;
+        var brain = Object.FindObjectOfType<CatBrain>(true);
+        if (!brain)
+        {
+            var scene = SceneManager.GetActiveScene();
+            if (scene.path != HouseScenePath)
+            {
+                if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+                EditorSceneManager.OpenScene(HouseScenePath, OpenSceneMode.Single);
+                brain = Object.FindObjectOfType<CatBrain>(true);
+            }
+        }
+        if (!brain) { Debug.LogWarning("[G7l6] No cat in the scene to resize. Run G7l6 > Add Cat To House first."); return; }
+
+        size = Mathf.Clamp(size, 0.2f, 5f);
+        var cat = brain.gameObject;
+        Undo.RecordObject(cat.transform, "Resize cat");
+        cat.transform.localScale = Vector3.one * size;
+        Dirty(cat.transform);
+
+        var agent = cat.GetComponent<NavMeshAgent>();
+        if (agent)
+        {
+            Undo.RecordObject(agent, "Resize cat");
+            agent.radius = 0.18f / size;
+            Dirty(agent);
+        }
+
+        EditorSceneManager.MarkSceneDirty(cat.scene);
+        Selection.activeObject = cat;
+        EditorGUIUtility.PingObject(cat);
+        SceneView.FrameLastActiveSceneView();
+        Debug.Log($"[G7l6] Cat scaled to {size}x. Change it any time with the Scale on the 'Cat' object.");
+        EditorUtility.DisplayDialog("Bigger cat", $"The cat is now {size}x its original size and its colors are fixed.\n\nPress Ctrl+S to save the scene.\n(Change the size any time with Scale on the 'Cat' object.)", "OK");
+    }
+
+    // ------------------------------------------------------------------ stairs
+
+    const string RampName = "Stairs Ramp (walkable)";
+
+    /// <summary>
+    /// Menu: G7l6 > Fix Stairs. Lays an invisible, perfectly smooth ramp over the stairs (the player and
+    /// the cat walk on that instead of the bumpy convex stair collider) and re-bakes the cat's walk map
+    /// so the cat can use the stairs too.
+    /// </summary>
+    [MenuItem("G7l6/Fix Stairs")]
+    public static void FixStairsMenu()
+    {
+        if (EditorApplication.isPlaying) { EditorUtility.DisplayDialog("Fix Stairs", "Stop Play mode first.", "OK"); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != HouseScenePath)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(HouseScenePath, OpenSceneMode.Single);
+        }
+
+        done.Clear(); problems.Clear(); created.Clear();
+        Undo.IncrementCurrentGroup();
+        int group = Undo.GetCurrentGroup();
+        Undo.SetCurrentGroupName("Fix Stairs");
+        FixStairs();
+        LinkCatToHouse();
+        BakeWalkMap();
+        Undo.CollapseUndoOperations(group);
+        EditorSceneManager.MarkSceneDirty(scene);
+        if (created.Count > 0) Selection.activeObject = created[0];
+
+        string message = "Done:\n- " + string.Join("\n- ", done);
+        if (problems.Count > 0) message += "\n\nNeeds a look:\n- " + string.Join("\n- ", problems);
+        message += "\n\nPress Ctrl+S to save the scene.";
+        Debug.Log("[Fix Stairs]\n" + message);
+        EditorUtility.DisplayDialog("Stairs fixed", message, "OK");
+    }
+
+    static void FixStairs()
+    {
+        // The ProBuilder staircase (the one with a mesh, not the railing pieces).
+        var stairs = AllTransforms()
+            .Where(t => t.name == "Stairs" && t.gameObject.activeInHierarchy && t.GetComponent<MeshFilter>())
+            .Select(t => t.gameObject).FirstOrDefault();
+        var mesh = stairs ? stairs.GetComponent<MeshFilter>().sharedMesh : null;
+        if (!mesh) { problems.Add("Couldn't find the stairs mesh ('Stairs')"); return; }
+
+        var t0 = stairs.transform;
+        var points = mesh.vertices.Select(v => t0.TransformPoint(v)).ToArray();
+
+        // Which way the stairs climb: along their length, towards the end whose vertices are higher.
+        Vector3 run = Flat(t0.forward);
+        float minS = points.Min(p => Vector3.Dot(p, run)), maxS = points.Max(p => Vector3.Dot(p, run));
+        float yLow = points.Where(p => Vector3.Dot(p, run) < minS + 0.4f).Average(p => p.y);
+        float yHigh = points.Where(p => Vector3.Dot(p, run) > maxS - 0.4f).Average(p => p.y);
+        if (yLow > yHigh)
+        {
+            run = -run;
+            float tmp = minS; minS = -maxS; maxS = -tmp;
+        }
+        Vector3 side = Vector3.Cross(Vector3.up, run).normalized;
+        float minW = points.Min(p => Vector3.Dot(p, side)), maxW = points.Max(p => Vector3.Dot(p, side));
+        float bottomY = points.Min(p => p.y), topY = points.Max(p => p.y);
+
+        // Step size: along the stairs, the vertices line up at the step edges (one more edge than steps).
+        // (Counting heights doesn't work - ProBuilder puts two heights ~2 cm apart on each step.)
+        float minRun = minS;
+        int edges = points.Select(p => Mathf.Round((Vector3.Dot(p, run) - minRun) * 50f)).Distinct().Count();
+        int steps = Mathf.Max(1, edges - 1);
+        float stepHeight = (topY - bottomY) / steps;
+        float stepDepth = (maxS - minS) / steps;
+        if (stepHeight < 0.08f || stepHeight > 0.6f) { stepHeight = 0f; stepDepth = 0f; } // couldn't tell - use the outline
+
+        // Ramp surface: the line through the front edges of the steps (where your foot lands),
+        // from where it meets the floor below up to the front edge of the top step.
+        float mid = (minW + maxW) * 0.5f;
+        Vector3 bottom = run * (minS - stepDepth) + side * mid; bottom.y = bottomY;
+        Vector3 top = run * (maxS - stepDepth) + side * mid; top.y = topY;
+        Vector3 along = top - bottom;
+        float length = along.magnitude;
+        Vector3 forward = along / length;
+        Vector3 normal = Vector3.Cross(forward, side).normalized;
+        if (normal.y < 0f) normal = -normal;
+        const float thickness = 0.4f;
+        float width = maxW - minW;
+
+        var ramp = RampPiece(RampName, stairs.layer);
+        ramp.transform.SetPositionAndRotation((bottom + top) * 0.5f - normal * (thickness * 0.5f), Quaternion.LookRotation(forward, normal));
+        SetBox(ramp, new Vector3(width, thickness, length + 0.1f));
+
+        // Flat landing on top of the last step, so there's no gap between the ramp and the upstairs floor.
+        if (stepDepth > 0f)
+        {
+            var landing = RampPiece(RampName + " - top", stairs.layer);
+            Vector3 landingCenter = run * (maxS - stepDepth * 0.5f) + side * mid;
+            landingCenter.y = topY - thickness * 0.5f;
+            landing.transform.SetPositionAndRotation(landingCenter, Quaternion.LookRotation(run, Vector3.up));
+            SetBox(landing, new Vector3(width, thickness, stepDepth + 0.1f));
+        }
+
+        // The old convex collider turns the steps into a lumpy wedge - the ramp replaces it.
+        var hull = stairs.GetComponent<MeshCollider>();
+        if (hull && hull.enabled)
+        {
+            Undo.RecordObject(hull, "Disable lumpy stairs collider");
+            hull.enabled = false;
+            Dirty(hull);
+        }
+
+        float angle = Vector3.Angle(Vector3.up, normal);
+        done.Add($"Laid a smooth invisible ramp over the stairs ({steps} steps, {angle:0}° steep, {length:0.0} m long) and switched off the old lumpy stairs collider");
+    }
+
+    /// <summary>A ramp piece at the scene root (so no stretched/rotated parent skews its box).</summary>
+    static GameObject RampPiece(string name, int layer)
+    {
+        var existing = AllTransforms().FirstOrDefault(t => t.name == name);
+        GameObject piece = existing ? existing.gameObject : null;
+        if (!piece)
+        {
+            piece = new GameObject(name);
+            Undo.RegisterCreatedObjectUndo(piece, "Create " + name);
+            created.Add(piece);
+        }
+        Undo.RecordObject(piece, "Place " + name);
+        Undo.RecordObject(piece.transform, "Place " + name);
+        piece.layer = layer; // counts as ground for the player
+        piece.transform.localScale = Vector3.one;
+        return piece;
+    }
+
+    static void SetBox(GameObject go, Vector3 size)
+    {
+        var box = go.GetComponent<BoxCollider>();
+        if (!box) box = Undo.AddComponent<BoxCollider>(go);
+        Undo.RecordObject(box, "Size " + go.name);
+        box.center = Vector3.zero;
+        box.size = size;
+    }
+
+    /// <summary>Tells the cat which objects are the house and the furniture (where it may and may not stand).</summary>
+    static void LinkCatToHouse()
+    {
+        var brain = Object.FindObjectOfType<CatBrain>(true);
+        if (!brain) return;
+        var house = FindActive("HouseTryTwo");
+        Undo.RecordObject(brain, "Link cat to house");
+        if (house)
+        {
+            brain.house = house.transform;
+            brain.furniture = FindChild(house.transform, "Furniature");
+        }
+        Dirty(brain);
+    }
+
+    /// <summary>Menu: G7l6 > Bake Cat Walk Map. Run it again after moving furniture or walls.</summary>
+    [MenuItem("G7l6/Bake Cat Walk Map")]
+    public static void BakeWalkMapMenu()
+    {
+        if (EditorApplication.isPlaying) { EditorUtility.DisplayDialog("Bake Cat Walk Map", "Stop Play mode first.", "OK"); return; }
+        done.Clear(); problems.Clear(); created.Clear();
+        BakeWalkMap();
+        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+        string message = string.Join("\n", done.Concat(problems));
+        EditorUtility.DisplayDialog("Cat walk map", message + "\n\nSave the scene (Ctrl+S) to keep it.", "OK");
+    }
+
+    static void BakeWalkMap()
+    {
+        var house = FindActive("HouseTryTwo");
+        Bounds area = house ? WorldBounds(house) : new Bounds(Vector3.zero, new Vector3(80f, 30f, 80f));
+        area.Expand(4f);
+
+        Physics.SyncTransforms();
+        var data = CatNavMesh.Bake(area);
+        if (!data) { problems.Add("Couldn't build the cat's walk map"); return; }
+        data.name = "Cat Walk Map";
+
+        EnsureFolder("Assets/Navigation");
+        if (AssetDatabase.LoadAssetAtPath<NavMeshData>(WalkMapPath)) AssetDatabase.DeleteAsset(WalkMapPath);
+        AssetDatabase.CreateAsset(data, WalkMapPath);
+
+        var holder = Object.FindObjectOfType<CatNavMesh>(true);
+        if (!holder)
+        {
+            var go = new GameObject("Cat Walk Map");
+            Undo.RegisterCreatedObjectUndo(go, "Create cat walk map");
+            holder = Undo.AddComponent<CatNavMesh>(go);
+        }
+        Undo.RecordObject(holder, "Bake cat walk map");
+        holder.data = data;
+        holder.bounds = area;
+        Dirty(holder);
+        done.Add("Baked the cat's walk map (G7l6 > Bake Cat Walk Map redoes it after you move furniture)");
+    }
 
     /// <summary>Menu: G7l6 > Rebuild HUD. Throws away the HUD in the scene and builds a fresh one (e.g. after new art).</summary>
     [MenuItem("G7l6/Rebuild HUD")]

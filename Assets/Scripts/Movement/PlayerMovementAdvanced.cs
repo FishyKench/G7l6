@@ -31,11 +31,13 @@ public class PlayerMovementAdvanced : MonoBehaviour
     [Header("Ground Check")]
     public float playerHeight;
     public LayerMask whatIsGround;
+    [Tooltip("Radius of the ground check. A sphere (instead of a thin ray) keeps you grounded on steep stairs and ramps.")]
+    public float groundCheckRadius = 0.35f;
     bool grounded;
+    RaycastHit groundHit;
 
     [Header("Slope Handling")]
     public float maxSlopeAngle;
-    private RaycastHit slopeHit;
     private bool exitingSlope;
 
     public Transform orientation;
@@ -80,7 +82,7 @@ public class PlayerMovementAdvanced : MonoBehaviour
     {
         if (canMove)
         {
-            grounded = Physics.Raycast(transform.position, Vector3.down, playerHeight * 0.5f + 0.2f, whatIsGround);
+            grounded = CheckGround();
 
             MyInput();
             SpeedControl();
@@ -163,8 +165,9 @@ public class PlayerMovementAdvanced : MonoBehaviour
         {
             rb.AddForce(GetSlopeMoveDirection() * moveSpeed * 20f, ForceMode.Force);
 
-            if (rb.velocity.y > 0)
-                rb.AddForce(Vector3.down * 80f, ForceMode.Force);
+            // Hug the slope instead of bouncing off it. (This used to push down whenever you moved up,
+            // which fought you on stairs so you had to sprint.)
+            rb.velocity = Vector3.ProjectOnPlane(rb.velocity, groundHit.normal);
         }
         else if (grounded)
         {
@@ -210,19 +213,25 @@ public class PlayerMovementAdvanced : MonoBehaviour
         exitingSlope = false;
     }
 
+    /// <summary>
+    /// Sweeps a sphere down from the middle of the player. A thin ray only just reached the ground on
+    /// the 44-degree stairs, so you kept "falling" mid-climb; a sphere touches the slope much earlier.
+    /// </summary>
+    private bool CheckGround()
+    {
+        float reach = playerHeight * 0.5f - groundCheckRadius + 0.25f;
+        return Physics.SphereCast(transform.position, groundCheckRadius, Vector3.down, out groundHit, reach, whatIsGround, QueryTriggerInteraction.Ignore);
+    }
+
     private bool OnSlope()
     {
-        if (Physics.Raycast(transform.position, Vector3.down, out slopeHit, playerHeight * 0.5f + 0.3f))
-        {
-            float angle = Vector3.Angle(Vector3.up, slopeHit.normal);
-            return angle < maxSlopeAngle && angle != 0;
-        }
-
-        return false;
+        if (!grounded) return false;
+        float angle = Vector3.Angle(Vector3.up, groundHit.normal);
+        return angle > 1f && angle < maxSlopeAngle;
     }
 
     private Vector3 GetSlopeMoveDirection()
     {
-        return Vector3.ProjectOnPlane(moveDirection, slopeHit.normal).normalized;
+        return Vector3.ProjectOnPlane(moveDirection, groundHit.normal).normalized;
     }
 }

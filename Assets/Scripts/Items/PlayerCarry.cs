@@ -38,7 +38,7 @@ public class PlayerCarry : MonoBehaviour
 
     public void PickUp(Carryable item)
     {
-        if (!item || item == Held || !holdPoint) return;
+        if (!item || item == Held || !holdPoint || item.TakenBy) return;
         if (Held) Drop(); // swap: put the current one down first
         Held = item;
         item.AttachTo(holdPoint);

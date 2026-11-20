@@ -33,6 +33,10 @@ public class Carryable : MonoBehaviour, IInteractable, IPromptProvider
     bool initialized;
 
     public bool IsHeld { get; private set; }
+    /// <summary>Something other than the player has it right now (e.g. the cat, in its mouth).</summary>
+    public Object TakenBy { get; private set; }
+    /// <summary>If set, the player can't pick it up and sees this message instead (e.g. "Kitty is napping on them").</summary>
+    public string BlockedBy { get; set; }
 
     void Awake() => Init();
 
@@ -52,10 +56,23 @@ public class Carryable : MonoBehaviour, IInteractable, IPromptProvider
         homeScale = transform.localScale;
     }
 
-    public string Prompt => IsHeld ? null : "Pick up " + displayName;
+    public string Prompt
+    {
+        get
+        {
+            if (IsHeld || TakenBy) return null;
+            return string.IsNullOrEmpty(BlockedBy) ? "Pick up " + displayName : BlockedBy;
+        }
+    }
 
     public void Interact()
     {
+        if (TakenBy) return;
+        if (!string.IsNullOrEmpty(BlockedBy))
+        {
+            GameHUD.Toast(BlockedBy, GameHUD.Warn);
+            return;
+        }
         if (PlayerCarry.Instance) PlayerCarry.Instance.PickUp(this);
     }
 
@@ -68,6 +85,8 @@ public class Carryable : MonoBehaviour, IInteractable, IPromptProvider
         Vector3 worldScale = transform.lossyScale * shrink;
 
         IsHeld = true;
+        TakenBy = null;
+        BlockedBy = null;
         SetPhysics(false);
         transform.SetParent(holdPoint, false);
         transform.localPosition = Vector3.zero;
@@ -85,6 +104,7 @@ public class Carryable : MonoBehaviour, IInteractable, IPromptProvider
     {
         Init();
         IsHeld = false;
+        TakenBy = null;
         transform.SetParent(homeParent, true);
         transform.localScale = homeScale;
         transform.rotation = Quaternion.Euler(0f, yaw, 0f) * Quaternion.Euler(0f, -homeRotation.eulerAngles.y, 0f) * homeRotation;
@@ -105,11 +125,29 @@ public class Carryable : MonoBehaviour, IInteractable, IPromptProvider
             PlayerCarry.Instance.TakeHeld();
 
         IsHeld = false;
+        TakenBy = null;
+        BlockedBy = null;
         transform.SetParent(homeParent, true);
         transform.SetPositionAndRotation(homePosition, homeRotation);
         transform.localScale = homeScale;
         SetPhysics(true);
         gameObject.SetActive(visible);
+    }
+
+    /// <summary>
+    /// Someone else (the cat) grabs it: no collisions, shrunk to fit their mouth.
+    /// They move it every frame themselves, and put it down again with PlaceAt().
+    /// </summary>
+    public void Take(Object taker, float maxSize)
+    {
+        Init();
+        if (IsHeld) return;
+        float size = WorldSize();
+        float shrink = size > maxSize && size > 0f ? maxSize / size : 1f;
+        TakenBy = taker;
+        SetPhysics(false);
+        transform.SetParent(homeParent, true);
+        transform.localScale = homeScale * shrink;
     }
 
     void SetPhysics(bool on)
