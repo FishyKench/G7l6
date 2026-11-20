@@ -52,7 +52,19 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 
     public override string Status => $"Page {Mathf.Min(pagesDone + 1, pagesRequired)}/{pagesRequired} - at the desk";
 
-    public string Prompt => IsActive ? "Do homework" : null;
+    public string Prompt => !IsActive ? null : CatBrain.OnKeyboard ? $"{CatBrain.Name} is on the keyboard - shoo her" : "Do homework";
+
+    /// <summary>The cat is lying on the keyboard and steps on a key: a typo (only matters while you're typing).</summary>
+    public void CatMashesKeys()
+    {
+        if (!open || hasError || string.IsNullOrEmpty(page)) return;
+        const string mash = "asdfghjkl;qwertyuiopzxcvbnm";
+        hasError = true;
+        wrongChar = mash[Random.Range(0, mash.Length)];
+        typos++;
+        if (Stress) Stress.AddStress(stressPerTypo);
+        Refresh();
+    }
 
     protected override void OnActivated()
     {
@@ -74,8 +86,9 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 
     public void StartMainTask()
     {
-        if (!IsActive)
+        if (!IsActive || CatBrain.OnKeyboard)
         {
+            if (CatBrain.OnKeyboard) GameHUD.Toast($"{CatBrain.Name} is lying on your keyboard - shoo her first!", GameHUD.Warn);
             if (PlayerInteraction.Instance) PlayerInteraction.Instance.ReleaseMainTask(this);
             return;
         }
@@ -97,6 +110,12 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
     protected override void TaskUpdate()
     {
         if (!open || Time.frameCount == openedFrame) return;
+        if (CatBrain.OnKeyboard)
+        {
+            // Can't type with a cat on the keys (Esc still works to get up and shoo her).
+            if (Time.frameCount % 15 == 0) Refresh();
+            return;
+        }
 
         string input = Input.inputString;
         if (string.IsNullOrEmpty(input)) return;
@@ -176,9 +195,12 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
         }
         bodyText.text = sb.ToString();
 
-        footerText.text = hasError
-            ? $"<color={ErrorColor}><b>Wrong key!</b> Press Backspace to fix it.</color>      Mistakes: {typos}"
-            : $"Mistakes: {typos}      <b>Backspace</b> fix      <b>Esc</b> stand up";
+        if (CatBrain.OnKeyboard)
+            footerText.text = $"<color={ErrorColor}><b>{CatBrain.Name} is lying on the keyboard!</b></color>  <b>Esc</b>, then shoo her.      Mistakes: {typos}";
+        else
+            footerText.text = hasError
+                ? $"<color={ErrorColor}><b>Wrong key!</b> Press Backspace to fix it.</color>      Mistakes: {typos}"
+                : $"Mistakes: {typos}      <b>Backspace</b> fix      <b>Esc</b> stand up";
     }
 
     void EnsureUI()

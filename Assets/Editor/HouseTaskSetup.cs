@@ -258,6 +258,70 @@ public static class HouseTaskSetup
     /// so the cat can use the stairs too.
     /// </summary>
     [MenuItem("G7l6/Fix Stairs")]
+    public static void CatOverhaulMenu() => CatOverhaul();
+
+    /// <summary>
+    /// Menu: G7l6 > Update Cat (Climbing). Makes beds/desks/tables/sofas/counters solid where they
+    /// weren't, links the cat to the house and re-bakes its walk map at the cat's real size.
+    /// </summary>
+    [MenuItem("G7l6/Update Cat (Climbing)")]
+    public static void CatOverhaul()
+    {
+        if (EditorApplication.isPlaying) { EditorUtility.DisplayDialog("Update Cat", "Stop Play mode first.", "OK"); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != HouseScenePath)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(HouseScenePath, OpenSceneMode.Single);
+        }
+
+        done.Clear(); problems.Clear(); created.Clear();
+        Undo.IncrementCurrentGroup();
+        int group = Undo.GetCurrentGroup();
+        Undo.SetCurrentGroupName("Update Cat (Climbing)");
+        Physics.SyncTransforms();
+        MakeClimbableFurnitureSolid();
+        Physics.SyncTransforms();
+        LinkCatToHouse();
+        BakeWalkMap();
+        Undo.CollapseUndoOperations(group);
+        EditorSceneManager.MarkSceneDirty(scene);
+
+        string message = "Done:\n- " + string.Join("\n- ", done);
+        if (problems.Count > 0) message += "\n\nNeeds a look:\n- " + string.Join("\n- ", problems);
+        message += "\n\nPress Ctrl+S to save the scene, then Play.\nTest keys: [ steal remote   ] nap   ; jump on furniture   ' lie on keyboard";
+        Debug.Log("[Update Cat]\n" + message);
+        EditorUtility.DisplayDialog("Cat updated", message, "OK");
+    }
+
+    static readonly System.Text.RegularExpressions.Regex ClimbableNames =
+        new System.Text.RegularExpressions.Regex("bed|desk|table|sofa|couch|counter|dresser|cabinet|nightstand|drawer|armchair",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>The cat can only jump onto things that have a collider. Give climbable furniture one if it has none.</summary>
+    static void MakeClimbableFurnitureSolid()
+    {
+        var house = FindActive("HouseTryTwo");
+        var furniture = house ? (FindChild(house.transform, "Furniature") ?? FindChild(house.transform, "Furniture")) : null;
+        if (!furniture) { problems.Add("Couldn't find the 'Furniature' object"); return; }
+
+        int added = 0;
+        foreach (Transform room in furniture)
+        {
+            foreach (Transform piece in room)
+            {
+                if (!piece.gameObject.activeInHierarchy || !ClimbableNames.IsMatch(piece.name)) continue;
+                if (piece.GetComponentInChildren<Carryable>(true)) continue;
+                if (piece.GetComponentsInChildren<Collider>(true).Any(c => !c.isTrigger)) continue;
+                EnsureCollider(piece.gameObject);
+                added++;
+            }
+        }
+        done.Add(added > 0
+            ? $"Made {added} beds/desks/tables/sofas solid so the cat (and you) can't walk through them"
+            : "All beds/desks/tables/sofas were already solid");
+    }
+
     public static void FixStairsMenu()
     {
         if (EditorApplication.isPlaying) { EditorUtility.DisplayDialog("Fix Stairs", "Stop Play mode first.", "OK"); return; }
@@ -422,7 +486,9 @@ public static class HouseTaskSetup
         area.Expand(4f);
 
         Physics.SyncTransforms();
-        var data = CatNavMesh.Bake(area);
+        var catForSize = Object.FindObjectOfType<CatBrain>(true);
+        float catScale = catForSize ? catForSize.transform.lossyScale.y : 1f;
+        var data = CatNavMesh.Bake(area, catScale);
         if (!data) { problems.Add("Couldn't build the cat's walk map"); return; }
         data.name = "Cat Walk Map";
 
@@ -440,6 +506,7 @@ public static class HouseTaskSetup
         Undo.RecordObject(holder, "Bake cat walk map");
         holder.data = data;
         holder.bounds = area;
+        if (house) holder.furniture = FindChild(house.transform, "Furniature") ?? FindChild(house.transform, "Furniture");
         Dirty(holder);
         done.Add("Baked the cat's walk map (G7l6 > Bake Cat Walk Map redoes it after you move furniture)");
     }

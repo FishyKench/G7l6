@@ -17,6 +17,7 @@ static class PendingSetup
     const string AddCatRequest = "Library/G7l6/add-cat.request";
     const string CatSizeRequest = "Library/G7l6/cat-size.request";
     const string FixStairsRequest = "Library/G7l6/fix-stairs.request";
+    const string CatOverhaulRequest = "Library/G7l6/cat-overhaul.request";
     const double GiveUpAfterSeconds = 120;
 
     static double startedAt;
@@ -24,7 +25,7 @@ static class PendingSetup
 
     static PendingSetup()
     {
-        if (!File.Exists(AddCatRequest) && !File.Exists(CatSizeRequest) && !File.Exists(FixStairsRequest)) return;
+        if (!File.Exists(AddCatRequest) && !File.Exists(CatSizeRequest) && !File.Exists(FixStairsRequest) && !File.Exists(CatOverhaulRequest)) return;
         startedAt = EditorApplication.timeSinceStartup;
         EditorApplication.update += Poll;
     }
@@ -38,7 +39,8 @@ static class PendingSetup
         bool addCat = File.Exists(AddCatRequest);
         bool resize = File.Exists(CatSizeRequest);
         bool stairs = File.Exists(FixStairsRequest);
-        if (!addCat && !resize && !stairs) { EditorApplication.update -= Poll; return; }
+        bool overhaul = File.Exists(CatOverhaulRequest);
+        if (!addCat && !resize && !stairs && !overhaul) { EditorApplication.update -= Poll; return; }
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
 
         // Wait for the cat model to finish importing.
@@ -70,6 +72,11 @@ static class PendingSetup
         {
             File.Delete(FixStairsRequest);
             HouseTaskSetup.FixStairsMenu();
+        }
+        if (overhaul)
+        {
+            File.Delete(CatOverhaulRequest);
+            HouseTaskSetup.CatOverhaul();
         }
     }
 }

@@ -5,26 +5,41 @@ using UnityEngine;
 using UnityEngine.AI;
 
 /// <summary>
-/// The family cat. Wanders around, gets the zoomies, watches you, and every now and then causes
-/// trouble:
-///   - Steals things (the TV remote - especially while a TV is blaring static - or the dirty clothes):
-///     sneaks up low, wiggles its butt, pounces, bats the thing around, then runs off with it in
-///     its mouth and drops it somewhere else. Things up on furniture get knocked onto the floor first.
-///   - Naps on the dirty clothes pile so you can't grab it until you shoo it away.
-/// The cat only ever stands on the house's real floors (never on furniture, outside or under the house).
+/// The family cat.
+///
+/// Everyday life: wanders around, gets the zoomies, watches you, jumps up onto beds, sofas,
+/// desks, tables and counters to sit for a while - and naps on the cozy ones.
+///
+/// Trouble (every 35-70 seconds):
+///   - Steals the TV remote (much more likely while a TV is blaring static) or the dirty clothes:
+///     sneaks up low, wiggles its butt, pounces, swats it around - sometimes right off the table -
+///     then runs off with it in its mouth and drops it somewhere else.
+///   - Naps on the dirty clothes pile so you can't grab it.
+///   - Lies on your homework keyboard: you can't type, and it mashes keys.
 /// Press E on the cat to pet it (calms you down), take back what it stole, or shoo it.
 ///
-/// The model only has idle / walk / run animations; crouching, wiggling, pouncing, napping,
-/// purring and looking at you are layered on top in code.
+/// The model only has idle / walk / run animations; crouching, wiggling, pouncing, jumping,
+/// napping, purring and looking at you are layered on top in code. Poses squash the body toward
+/// the floor (instead of moving it down) so the legs never go through the floor.
 /// </summary>
 [RequireComponent(typeof(NavMeshAgent))]
 public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 {
+    public static CatBrain Instance { get; private set; }
+    /// <summary>True while the cat is lying on the homework keyboard.</summary>
+    public static bool OnKeyboard => Instance && Instance.mood == Mood.Keyboard;
+    public static string Name => Instance ? Instance.catName : "The cat";
+
     [Header("Cat")]
     public string catName = "Kitty";
     public float walkSpeed = 1f;
     public float runSpeed = 3.6f;
     public float wanderRadius = 6f;
+
+    [Header("Climbing")]
+    [Tooltip("How often a quiet moment is spent up on furniture.")]
+    [Range(0f, 1f)] public float perchChance = 0.3f;
+    public Vector2 perchTime = new Vector2(8f, 20f);
 
     [Header("Mischief")]
     public float firstMischiefDelay = 25f;
@@ -34,6 +49,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     public List<ItemType> stealable = new List<ItemType> { ItemType.Remote, ItemType.DirtyClothes };
     public Vector2 napLength = new Vector2(25f, 40f);
     public float stressWhenStealing = 3f;
+    public Vector2 keyboardTime = new Vector2(20f, 35f);
+    [Tooltip("Seconds between key mashes while lying on the keyboard.")]
+    public float keyMashInterval = 1.1f;
 
     [Header("Petting")]
     public float petStressRelief = 4f;
@@ -46,9 +64,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     public Transform mouthBone;
 
     [Header("House (found automatically if empty)")]
-    [Tooltip("The house root. The cat only stands on floors that belong to it.")]
+    [Tooltip("The house root. The cat only walks around on floors that belong to it.")]
     public Transform house;
-    [Tooltip("The furniture root. The cat never stands on top of furniture.")]
+    [Tooltip("The furniture root. Furniture tops are for perching, not wandering.")]
     public Transform furniture;
 
     [Header("Floating words")]
@@ -56,12 +74,16 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     [Header("Test keys (editor and development builds only)")]
     public bool debugKeys = true;
-    [Tooltip("Send the cat to nap on the dirty clothes right now.")]
-    public KeyCode debugNapKey = KeyCode.RightBracket;
-    [Tooltip("Make the cat go steal the TV remote right now.")]
+    [Tooltip("Steal the TV remote right now.")]
     public KeyCode debugStealKey = KeyCode.LeftBracket;
+    [Tooltip("Nap on the dirty clothes right now (starts the laundry task if needed).")]
+    public KeyCode debugNapKey = KeyCode.RightBracket;
+    [Tooltip("Jump onto the nearest furniture right now.")]
+    public KeyCode debugPerchKey = KeyCode.Semicolon;
+    [Tooltip("Go lie on the homework keyboard right now.")]
+    public KeyCode debugKeyboardKey = KeyCode.Quote;
 
-    enum Mood { Idle, Walking, Stalking, Playing, Running, Napping, Purring }
+    enum Mood { Idle, Walking, Stalking, Playing, Running, Napping, Purring, Perching, Keyboard }
 
     static readonly int VertParam = Animator.StringToHash("Vert");
     static readonly int StateParam = Animator.StringToHash("State");
@@ -69,27 +91,43 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     static readonly RaycastHit[] probeHits = new RaycastHit[16];
     static readonly HitOrder byDistance = new HitOrder();
 
+    // Body shapes (scale of the body around the feet): squashing keeps the feet on the floor.
+    static readonly Vector3 CrouchShape = new Vector3(1.06f, 0.8f, 1.05f);
+    static readonly Vector3 LoafShape = new Vector3(1.14f, 0.6f, 1.0f);
+    static readonly Vector3 AnticipationShape = new Vector3(1.1f, 0.74f, 1.1f);
+    static readonly Vector3 LeapShape = new Vector3(0.92f, 1.1f, 1.12f);
+    static readonly Vector3 LandingShape = new Vector3(1.12f, 0.8f, 1.1f);
+
     Mood mood;
-    NavMeshPath testPath;
-    BoneTweak bodyTweak, headTweak;
-    Vector3 lastGoodPosition;
-    bool hasGoodPosition;
-    float nextSafetyCheck, traceUntil, nextTrace;
     NavMeshAgent agent;
     Animator animator;
     Transform player;
     Carryable[] items;
     Carryable carried;
     Carryable napOn;
-    NavMeshPath path;
+    TypingTask keyboardOf;
+    NavMeshPath path, testPath;
     bool ready;
-    float nextMischief, nextPet, nextWord;
+    float nextMischief, nextPet, nextWord, nextKeyMash;
     float crouch, crouchTarget, loaf, loafTarget, hop, wiggle, purr, headWeight;
+
+    // jumping on/off furniture
+    bool jumping;
+    Vector3 jumpFrom, jumpTo, jumpShape = Vector3.one;
+    float jumpClock, jumpDuration, jumpHeight, landClock;
+
+    // pose bookkeeping and safety nets
+    BoneTweak bodyTweak, headTweak;
+    Vector3 bodyRestScale = Vector3.one;
+    Vector3 lastGoodPosition;
+    bool hasGoodPosition;
+    float nextSafetyCheck, traceUntil, nextTrace;
 
     // ------------------------------------------------------------------ setup
 
     void Awake()
     {
+        Instance = this;
         agent = GetComponent<NavMeshAgent>();
         animator = GetComponentInChildren<Animator>();
         if (animator) animator.applyRootMotion = false;
@@ -99,6 +137,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         if (!bodyBone) bodyBone = FindBone("Root");
         if (!headBone) headBone = FindBone("spine.008") ?? FindBone("spine.007");
         if (!mouthBone) mouthBone = FindBone("jaw") ?? headBone;
+        if (bodyBone) bodyRestScale = bodyBone.localScale;
 
         // The model comes with keyboard-controlled movement scripts. The cat moves itself now.
         foreach (var mb in GetComponents<MonoBehaviour>())
@@ -132,9 +171,13 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             return;
         }
 
+        // Same size as the walk map was baked for (values are scaled by the cat's own scale).
+        agent.radius = 0.13f;
+        agent.height = 0.42f;
         agent.speed = walkSpeed;
         agent.angularSpeed = 420f;
         agent.acceleration = 10f;
+        agent.autoTraverseOffMeshLink = false; // we animate the jumps ourselves
         ready = true;
         nextMischief = Time.time + firstMischiefDelay;
         StartCoroutine(Life());
@@ -143,7 +186,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     void OnDisable()
     {
         if (napOn) { napOn.BlockedBy = null; napOn = null; }
+        keyboardOf = null;
         if (carried) DropCarried();
+        if (Instance == this) Instance = null;
     }
 
     // ------------------------------------------------------------------ every frame
@@ -156,22 +201,35 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         if (debugKeys && !(PlayerInteraction.Instance && PlayerInteraction.Instance.InMainTask))
         {
-            if (Input.GetKeyDown(debugNapKey)) DebugNap();
             if (Input.GetKeyDown(debugStealKey)) DebugSteal(ItemType.Remote);
+            if (Input.GetKeyDown(debugNapKey)) DebugNap();
+            if (Input.GetKeyDown(debugPerchKey)) DebugPerch();
+            if (Input.GetKeyDown(debugKeyboardKey)) DebugKeyboard();
         }
 #endif
 
-        if (carried && carried.TakenBy != this) carried = null; // someone else took it (a task reset it)
+        if (carried && carried.TakenBy != this) carried = null; // a task took it back
 
+        UpdateJump(dt);
         SafetyCheck();
         Trace();
 
         if (animator)
         {
             float speed = agent.enabled ? agent.velocity.magnitude : 0f;
-            animator.SetFloat(VertParam, Mathf.Clamp01(speed / (walkSpeed * 0.6f)), 0.12f, dt);
-            animator.SetFloat(StateParam, Mathf.InverseLerp(walkSpeed * 1.1f, runSpeed, speed), 0.12f, dt);
-            float animSpeed = mood == Mood.Napping ? 0.25f : mood == Mood.Stalking ? 0.6f : mood == Mood.Purring ? 0.5f : 1f;
+            float vert = jumping ? 1f : Mathf.Clamp01(speed / (walkSpeed * 0.6f));
+            float state = jumping ? 0.7f : Mathf.InverseLerp(walkSpeed * 1.1f, runSpeed, speed);
+            animator.SetFloat(VertParam, vert, 0.1f, dt);
+            animator.SetFloat(StateParam, state, 0.1f, dt);
+            float animSpeed = mood switch
+            {
+                Mood.Napping => 0.25f,
+                Mood.Stalking => 0.6f,
+                Mood.Purring => 0.5f,
+                Mood.Perching => 0.7f,
+                Mood.Keyboard => 0.6f,
+                _ => 1f,
+            };
             animator.speed = Mathf.MoveTowards(animator.speed, animSpeed, dt * 2f);
         }
 
@@ -183,6 +241,13 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         {
             if (mood == Mood.Napping) { Say("z", SleepyBlue, 1.2f); nextWord = Time.time + Random.Range(1f, 1.6f); }
             else if (mood == Mood.Purring) { Say("purr", HudArt.MarkerRed, 1.1f); nextWord = Time.time + 0.9f; }
+            else if (mood == Mood.Keyboard) { Say(Random.value < 0.5f ? "tap" : "jkl;", HudArt.Ink, 1f); nextWord = Time.time + Random.Range(1f, 1.8f); }
+        }
+
+        if (mood == Mood.Keyboard && keyboardOf && Time.time >= nextKeyMash)
+        {
+            nextKeyMash = Time.time + keyMashInterval * Random.Range(0.7f, 1.3f);
+            keyboardOf.CatMashesKeys();
         }
     }
 
@@ -190,16 +255,21 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     void LateUpdate()
     {
         if (!ready) return;
-
         float s = Size;
+
         if (bodyBone)
         {
             bodyTweak.Begin(bodyBone);
-            bodyBone.position += (Vector3.down * (crouch * 0.07f + loaf * 0.12f) + Vector3.up * hop) * s;
+            if (hop > 0f) bodyBone.position += Vector3.up * hop * s;
             if (Mathf.Abs(wiggle) > 0.01f)
                 bodyBone.rotation = Quaternion.AngleAxis(wiggle, transform.up) * bodyBone.rotation;
             if (purr > 0.01f)
-                bodyBone.position += Random.insideUnitSphere * 0.003f * purr * s;
+                bodyBone.rotation = Quaternion.Euler(Random.insideUnitSphere * 1.2f * purr) * bodyBone.rotation;
+
+            // Squash around the feet (the Root bone sits on the floor) - never through it.
+            Vector3 shape = Vector3.Scale(Vector3.Lerp(Vector3.one, CrouchShape, crouch), Vector3.Lerp(Vector3.one, LoafShape, loaf));
+            shape = Vector3.Scale(shape, jumpShape);
+            bodyBone.localScale = Vector3.Scale(bodyRestScale, shape);
             bodyTweak.End(bodyBone);
         }
 
@@ -207,7 +277,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         {
             headTweak.Begin(headBone);
             // Turn the head to watch the player when they're close.
-            bool look = player && (mood == Mood.Idle || mood == Mood.Walking || mood == Mood.Purring)
+            bool look = player && !jumping && (mood == Mood.Idle || mood == Mood.Walking || mood == Mood.Purring || mood == Mood.Perching || mood == Mood.Keyboard)
                         && (player.position - transform.position).sqrMagnitude < 25f;
             headWeight = Mathf.MoveTowards(headWeight, look ? 1f : 0f, Time.deltaTime * 2.5f);
             if (headWeight > 0.001f)
@@ -218,7 +288,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
                 if (angle > 75f) turn = Quaternion.Slerp(Quaternion.identity, turn, 75f / angle);
                 headBone.rotation = Quaternion.Slerp(Quaternion.identity, turn, headWeight * 0.8f) * headBone.rotation;
             }
-            if (loaf > 0.01f) // tuck the head down when napping
+            if (loaf > 0.01f && mood == Mood.Napping) // tuck the head down when napping
                 headBone.rotation = Quaternion.AngleAxis(loaf * 25f, transform.right) * headBone.rotation;
             headTweak.End(headBone);
         }
@@ -230,14 +300,62 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         }
     }
 
+    // ------------------------------------------------------------------ jumping (furniture links)
+
+    void UpdateJump(float dt)
+    {
+        if (!jumping && agent.enabled && agent.isOnOffMeshLink) BeginJump();
+
+        if (landClock > 0f)
+        {
+            landClock -= dt;
+            jumpShape = Vector3.Lerp(Vector3.one, LandingShape, Mathf.Clamp01(landClock / 0.22f));
+        }
+        if (!jumping) { if (landClock <= 0f) jumpShape = Vector3.one; return; }
+
+        jumpClock += dt;
+        FaceInstant(jumpTo, dt * 12f);
+        const float windUp = 0.14f;
+        if (jumpClock < windUp)
+        {
+            jumpShape = Vector3.Lerp(Vector3.one, AnticipationShape, jumpClock / windUp); // crouch before the leap
+            return;
+        }
+
+        float k = Mathf.Clamp01((jumpClock - windUp) / jumpDuration);
+        transform.position = Vector3.Lerp(jumpFrom, jumpTo, k) + Vector3.up * (jumpHeight * 4f * k * (1f - k));
+        jumpShape = Vector3.Lerp(LeapShape, Vector3.one, Mathf.Abs(k - 0.4f) * 1.6f); // stretch out mid-air
+
+        if (k >= 1f)
+        {
+            jumping = false;
+            transform.position = jumpTo;
+            agent.CompleteOffMeshLink();
+            landClock = 0.22f;
+        }
+    }
+
+    void BeginJump()
+    {
+        var link = agent.currentOffMeshLinkData;
+        jumping = true;
+        jumpClock = 0f;
+        jumpFrom = transform.position;
+        jumpTo = link.endPos;
+        float rise = jumpTo.y - jumpFrom.y;
+        jumpHeight = rise > 0f ? rise * 0.6f + 0.15f * Size : 0.2f * Size;
+        jumpDuration = 0.3f + 0.15f * Mathf.Abs(rise);
+    }
+
     // ------------------------------------------------------------------ player interaction
 
     public string Prompt
     {
         get
         {
-            if (!ready) return null;
-            if (mood == Mood.Napping) return "Shoo " + catName;
+            if (!ready || jumping) return null;
+            if (mood == Mood.Keyboard) return $"Shoo {catName} off the keyboard";
+            if (mood == Mood.Napping && napOn) return "Shoo " + catName;
             if (carried) return $"Take the {carried.displayName} back";
             return Time.time >= nextPet ? "Pet " + catName : null;
         }
@@ -245,9 +363,15 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     public void Interact()
     {
-        if (!ready) return;
+        if (!ready || jumping) return;
 
-        if (mood == Mood.Napping)
+        if (mood == Mood.Keyboard)
+        {
+            GameHUD.Toast($"{catName} hops off the keyboard.", GameHUD.Info);
+            React(RunFrom(PlayerPos(), 4f));
+            return;
+        }
+        if (mood == Mood.Napping && napOn)
         {
             GameHUD.Toast($"{catName} grumbles and slinks off.", GameHUD.Info);
             React(RunFrom(PlayerPos(), 5f));
@@ -295,7 +419,6 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         if (carried) DropCarried();
         if (!clothes.gameObject.activeInHierarchy)
         {
-            // The pile only shows up during the laundry task - start it so there's something to nap on.
             var laundry = FindObjectOfType<LaundryTask>();
             if (laundry && !laundry.IsActive && GameManager.Instance) GameManager.Instance.StartTask(laundry);
             if (!clothes.gameObject.activeInHierarchy) clothes.ReturnHome(true);
@@ -304,6 +427,27 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         BringCloseTo(clothes.transform.position);
         DebugSay($"{catName} is heading for a nap");
         React(NapOn(clothes));
+    }
+
+    /// <summary>Test: jump onto the closest furniture right now (default key: ;).</summary>
+    public void DebugPerch()
+    {
+        if (!ready) return;
+        if (!TryPickPerch(true, out var perch)) { DebugSay("No furniture to jump on nearby"); return; }
+        DebugSay($"{catName} is jumping onto the {perch.name}");
+        React(PerchOn(perch, false));
+    }
+
+    /// <summary>Test: go lie on the homework keyboard right now (default key: ').</summary>
+    public void DebugKeyboard()
+    {
+        if (!ready) return;
+        var homework = FindObjectOfType<TypingTask>();
+        if (!homework || !homework.IsActive) { DebugSay("No homework to lie on right now"); return; }
+        if (!DeskSpot(homework, false, out var spot)) { DebugSay("Can't find a spot on the desk"); return; }
+        if (!CanReach(spot)) BringCloseTo(spot);
+        DebugSay($"{catName} is heading for your keyboard");
+        React(SitOnKeyboard(homework));
     }
 
     Carryable FindItem(ItemType type)
@@ -348,19 +492,16 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         if (Time.time > traceUntil || Time.time < nextTrace) return;
         nextTrace = Time.time + 0.5f;
         Vector3 p = transform.position;
-        string body = bodyBone ? $"body {bodyBone.position.y - p.y:+0.00;-0.00}m local {bodyBone.localPosition}" : "no body bone";
-        Debug.Log($"[Cat trace] {Time.time:0.0}s {mood} at {p} navmesh:{(agent.enabled && agent.isOnNavMesh)} " +
-                  $"agentPos {(agent.enabled ? agent.nextPosition.ToString() : "-")} {body} floorBelow:{Physics.Raycast(p + Vector3.up * 0.3f, Vector3.down, 50f, ~0, QueryTriggerInteraction.Ignore)} " +
-                  $"anim:{(animator ? animator.enabled + "/" + animator.speed.ToString("0.00") : "-")} carrying:{(carried ? carried.name : "-")}");
+        string body = bodyBone ? $"body {bodyBone.position.y - p.y:+0.00;-0.00}m scale {bodyBone.localScale}" : "no body bone";
+        Debug.Log($"[Cat trace] {Time.time:0.0}s {mood}{(jumping ? " (jumping)" : "")} at {p} navmesh:{(agent.enabled && agent.isOnNavMesh)} " +
+                  $"{body} floorBelow:{Physics.Raycast(p + Vector3.up * 0.3f, Vector3.down, 50f, ~0, QueryTriggerInteraction.Ignore)} " +
+                  $"carrying:{(carried ? carried.name : "-")}");
     }
 
-    /// <summary>
-    /// If the cat ever ends up with nothing under it (below the house), put it back where it last
-    /// stood on a real floor.
-    /// </summary>
+    /// <summary>If the cat ever ends up with nothing under it (below the house), put it back where it last stood on a real floor.</summary>
     void SafetyCheck()
     {
-        if (Time.time < nextSafetyCheck) return;
+        if (jumping || Time.time < nextSafetyCheck) return;
         nextSafetyCheck = Time.time + 0.5f;
 
         Vector3 p = transform.position;
@@ -392,8 +533,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             }
 
             float r = Random.value;
-            if (r < 0.1f) yield return Zoomies();
-            else if (r < 0.6f) yield return Wander();
+            if (r < 0.08f) yield return Zoomies();
+            else if (r < 0.08f + perchChance && TryPickPerch(false, out var perch)) yield return PerchOn(perch, false);
+            else if (r < 0.75f) yield return Wander();
             else yield return Idle(Random.Range(3f, 7f));
         }
     }
@@ -404,43 +546,49 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         foreach (var tv in FindObjectsOfType<TvTask>())
             if (tv.IsActive) tvBlaring = true;
 
-        Carryable best = null;
+        IEnumerator best = null;
         float bestScore = 0f;
-        bool nap = false;
         foreach (var item in items)
         {
-            if (!Available(item) || !FindFloorSpot(item.transform.position, 1.4f, true, out _)) continue;
-
+            if (!Available(item) || !CanGetTo(item)) continue;
             if (stealable.Contains(item.type))
             {
                 float score = (item.type == ItemType.Remote && tvBlaring ? 6f : 1f) * Random.Range(0.5f, 1.5f);
-                if (score > bestScore) { bestScore = score; best = item; nap = false; }
+                if (score > bestScore) { bestScore = score; best = Steal(item); }
             }
             if (item.type == ItemType.DirtyClothes)
             {
                 float score = 2.5f * Random.Range(0.5f, 1.5f);
-                if (score > bestScore) { bestScore = score; best = item; nap = true; }
+                if (score > bestScore) { bestScore = score; best = NapOn(item); }
             }
         }
-        if (!best) return null;
-        return nap ? NapOn(best) : Steal(best);
+
+        var homework = FindObjectOfType<TypingTask>();
+        if (homework && homework.IsActive && DeskSpot(homework, true, out _))
+        {
+            float score = 2.5f * Random.Range(0.5f, 1.5f);
+            if (score > bestScore) { bestScore = score; best = SitOnKeyboard(homework); }
+        }
+        return best;
     }
 
     IEnumerator Steal(Carryable item)
     {
-        // A spot on the floor right next to it (it might be up on a table).
-        if (!FindFloorSpot(item.transform.position, 1.4f, true, out Vector3 spot)) yield break;
-        bool onFurniture = IsUpHigh(item);
+        // Get right next to it - up on the furniture if there's a way up, otherwise underneath.
+        bool fromBelow;
+        if (SpotAt(item, out Vector3 spot)) fromBelow = false;
+        else if (FindFloorSpot(item.transform.position, 1.4f, true, out spot)) fromBelow = true;
+        else yield break;
 
         // Sneak over...
         mood = Mood.Walking;
-        yield return WalkTo(spot, walkSpeed, 0.9f + 0.5f * Size, 20f);
+        yield return WalkTo(spot, walkSpeed, 0.9f + 0.5f * Size, 25f);
         if (!Available(item)) yield break;
 
-        // ...stalk it, low and slow (right under it if it's on furniture, a pounce away if it's on the floor)...
+        // ...stalk it, low and slow...
         mood = Mood.Stalking;
         crouchTarget = 1f;
-        yield return WalkTo(spot, walkSpeed * 0.35f, onFurniture ? 0.12f : 0.5f * Size, 6f);
+        yield return WalkTo(spot, walkSpeed * 0.35f, fromBelow ? 0.12f : 0.45f * Size, 6f);
         if (!Available(item)) { crouchTarget = 0f; yield break; }
         yield return Face(item.transform.position, 0.4f);
 
@@ -453,24 +601,30 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         wiggle = 0f;
         if (!Available(item)) { crouchTarget = 0f; yield break; }
 
-        // ...POUNCE (or jump up at it if it's on furniture), then bat it around.
+        // ...POUNCE (or jump up at it from below), then bat it around.
         crouchTarget = 0f;
         mood = Mood.Playing;
-        bool upHigh = IsUpHigh(item);
-        yield return upHigh ? Pounce(transform.position, 0.35f) : Pounce(item.transform.position, 0.18f);
+        yield return fromBelow ? Pounce(transform.position, 0.35f) : Pounce(item.transform.position, 0.18f);
+
+        // Up on furniture with it? Sometimes it goes over the edge. From below it always comes down.
+        bool knockOff = fromBelow || (IsOnFurniture(item) && Random.value < 0.5f);
         int swats = Random.Range(2, 4);
         for (int i = 0; i < swats; i++)
         {
             if (!Available(item)) yield break;
-            if (upHigh && i == swats - 1) yield return KnockOff(item); // cats gonna cat
+            if (knockOff && i == swats - 1) yield return KnockOff(item, fromBelow);
             else yield return Swat(item);
             yield return new WaitForSeconds(Random.Range(0.25f, 0.6f));
         }
         if (!Available(item)) yield break;
 
-        // Step over to it if it landed a little away.
-        if (Flat(item.transform.position - transform.position).magnitude > 0.5f * Size)
-            yield return WalkTo(item.transform.position, walkSpeed, 0.3f * Size, 3f);
+        // Go get it if it ended up somewhere else (e.g. down on the floor).
+        if (Flat(item.transform.position - transform.position).magnitude > 0.5f * Size || Mathf.Abs(item.transform.position.y - transform.position.y) > 0.4f)
+        {
+            mood = Mood.Walking;
+            Vector3 target = SpotAt(item, out var near) ? near : item.transform.position;
+            yield return WalkTo(target, walkSpeed * 1.4f, 0.3f * Size, 6f);
+        }
         if (!Available(item)) yield break;
 
         // Grab it and run.
@@ -490,25 +644,26 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     IEnumerator NapOn(Carryable clothes)
     {
-        if (!FindFloorSpot(clothes.transform.position, 1.4f, true, out Vector3 spot)) yield break;
+        bool reachable = SpotAt(clothes, out Vector3 spot);
+        if (!reachable && !FindFloorSpot(clothes.transform.position, 1.4f, true, out spot)) yield break;
 
         mood = Mood.Walking;
         yield return WalkTo(spot, walkSpeed, 0.2f, 25f);
         if (!Available(clothes)) yield break;
 
-        // Pile's up on furniture? Knock it down first - a nap is a nap.
-        if (IsUpHigh(clothes))
+        // Can't get onto the pile? Knock it down first - a nap is a nap.
+        if (!reachable && IsUpHigh(clothes))
         {
             yield return Face(clothes.transform.position, 0.3f);
             mood = Mood.Playing;
             yield return Pounce(transform.position, 0.35f);
-            yield return KnockOff(clothes);
+            yield return KnockOff(clothes, true);
             if (!Available(clothes)) yield break;
         }
 
         // Climb onto the pile.
         mood = Mood.Walking;
-        yield return WalkTo(clothes.transform.position, walkSpeed * 0.6f, 0.05f, 4f);
+        yield return WalkTo(clothes.transform.position, walkSpeed * 0.6f, 0.05f, 5f);
         if (!Available(clothes)) yield break;
 
         // Turn around once, then flop down.
@@ -526,6 +681,52 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         if (napOn) { napOn.BlockedBy = null; napOn = null; }
         loafTarget = 0f;
         yield return Idle(1.5f);
+    }
+
+    /// <summary>Jump up onto furniture and sit there for a while - or curl up for a nap on beds and sofas.</summary>
+    IEnumerator PerchOn(CatNavMesh.Perch perch, bool forceNap)
+    {
+        mood = Mood.Walking;
+        yield return WalkTo(perch.top, walkSpeed, 0.15f, 25f);
+        if (Flat(transform.position - perch.top).magnitude > 0.6f || Mathf.Abs(transform.position.y - perch.top.y) > 0.3f)
+            yield break; // didn't make it up there
+
+        yield return Face(transform.position + Quaternion.Euler(0f, Random.Range(120f, 240f), 0f) * transform.forward, 0.5f);
+        bool nap = forceNap || (perch.cozy && Random.value < 0.6f);
+        mood = nap ? Mood.Napping : Mood.Perching;
+        loafTarget = nap ? 1f : 0.35f; // curled up, or just sitting
+
+        float until = Time.time + (nap ? Random.Range(napLength.x, napLength.y) : Random.Range(perchTime.x, perchTime.y));
+        while (Time.time < until) yield return null;
+
+        loafTarget = 0f;
+        yield return Idle(1f);
+    }
+
+    /// <summary>Lie down on the homework keyboard: no typing until she's shooed, and she mashes keys.</summary>
+    IEnumerator SitOnKeyboard(TypingTask homework)
+    {
+        if (!DeskSpot(homework, true, out var spot)) yield break;
+
+        mood = Mood.Walking;
+        yield return WalkTo(spot, walkSpeed, 0.12f, 30f);
+        if (!homework || !homework.IsActive || Flat(transform.position - spot).magnitude > 0.6f || Mathf.Abs(transform.position.y - spot.y) > 0.3f)
+            yield break;
+
+        if (player) yield return Face(player.position, 0.4f);
+        mood = Mood.Keyboard;
+        loafTarget = 0.6f;
+        keyboardOf = homework;
+        nextKeyMash = Time.time + 0.5f;
+        GameHUD.Toast($"{catName} is lying on your keyboard!", GameHUD.Warn);
+
+        float until = Time.time + Random.Range(keyboardTime.x, keyboardTime.y);
+        while (Time.time < until && homework && homework.IsActive) yield return null;
+
+        keyboardOf = null;
+        loafTarget = 0f;
+        mood = Mood.Idle;
+        yield return Idle(1f);
     }
 
     IEnumerator Petted()
@@ -569,15 +770,14 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     IEnumerator Idle(float seconds)
     {
         mood = Mood.Idle;
-        if (agent.isOnNavMesh) agent.ResetPath();
+        Halt();
         yield return new WaitForSeconds(seconds);
     }
 
     IEnumerator RunFrom(Vector3 from, float distance)
     {
         mood = Mood.Running;
-        Vector3 away = transform.position - from;
-        away.y = 0f;
+        Vector3 away = Flat(transform.position - from);
         if (away.sqrMagnitude < 0.01f) away = -transform.forward;
         Vector3 target = transform.position + away.normalized * distance;
         if (!NavMesh.SamplePosition(target, out var hit, 3f, NavMesh.AllAreas) || !SameFloor(hit.position)
@@ -585,7 +785,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             target = FarPoint(from, distance);
         else
             target = hit.position;
-        yield return WalkTo(target, runSpeed, 0.4f, 5f);
+        yield return WalkTo(target, runSpeed, 0.4f, 6f);
         mood = Mood.Idle;
     }
 
@@ -593,6 +793,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     IEnumerator WalkTo(Vector3 destination, float speed, float stopDistance, float timeout)
     {
+        while (jumping) yield return null;
         if (!agent.isOnNavMesh) yield break;
         if (NavMesh.SamplePosition(destination, out var hit, 1.5f, NavMesh.AllAreas)) destination = hit.position;
 
@@ -602,18 +803,24 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         agent.SetDestination(destination);
 
         float giveUp = Time.time + timeout;
-        while (Time.time < giveUp)
+        while (Time.time < giveUp || jumping)
         {
-            if (!agent.pathPending && agent.remainingDistance <= stopDistance + 0.05f) break;
+            if (!jumping && !agent.pathPending && !agent.isOnOffMeshLink && agent.remainingDistance <= stopDistance + 0.05f) break;
             yield return null;
         }
-        if (agent.isOnNavMesh) agent.ResetPath();
+        Halt();
+    }
+
+    /// <summary>Stop walking (but never in the middle of a jump).</summary>
+    void Halt()
+    {
+        if (!jumping && agent.enabled && agent.isOnNavMesh && !agent.isOnOffMeshLink) agent.ResetPath();
     }
 
     IEnumerator Face(Vector3 target, float duration)
     {
-        Vector3 dir = target - transform.position;
-        dir.y = 0f;
+        while (jumping) yield return null;
+        Vector3 dir = Flat(target - transform.position);
         if (dir.sqrMagnitude < 0.0001f) yield break;
 
         agent.updateRotation = false;
@@ -627,10 +834,18 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         agent.updateRotation = true;
     }
 
+    void FaceInstant(Vector3 target, float amount)
+    {
+        Vector3 dir = Flat(target - transform.position);
+        if (dir.sqrMagnitude > 0.0001f)
+            transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Mathf.Clamp01(amount));
+    }
+
     /// <summary>A hop toward the target (or straight up when the target is where the cat stands).</summary>
     IEnumerator Pounce(Vector3 target, float height)
     {
-        if (agent.isOnNavMesh) agent.ResetPath();
+        while (jumping) yield return null;
+        Halt();
         agent.updateRotation = false;
         Vector3 dir = Flat(target - transform.position);
         float distance = dir.magnitude < 0.05f ? 0f : Mathf.Clamp(dir.magnitude - 0.2f, 0.1f, 0.6f);
@@ -640,22 +855,54 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         for (float t = 0f; t < time; t += Time.deltaTime)
         {
             hop = Mathf.Sin(t / time * Mathf.PI) * height; // scaled by Size in LateUpdate
-            if (distance > 0f) agent.Move(dir * (distance / time) * Time.deltaTime);
+            if (distance > 0f && agent.isOnNavMesh) agent.Move(dir * (distance / time) * Time.deltaTime);
             yield return null;
         }
         hop = 0f;
         agent.updateRotation = true;
     }
 
-    /// <summary>Swipes something off a table/shelf so it tumbles onto the floor in front of the cat.</summary>
-    IEnumerator KnockOff(Carryable item)
+    /// <summary>A quick paw swipe: the cat dips forward and the item skitters away a little.</summary>
+    IEnumerator Swat(Carryable item)
     {
         Vector3 start = item.transform.position;
-        Vector3 land = transform.position + transform.forward * 0.35f * Size;
-        if (!NavMesh.SamplePosition(land, out var hit, 1f, NavMesh.AllAreas) || !IsFloorSpot(hit.position) || !SameFloor(hit.position))
-            land = transform.position;
+        Vector3 away = Flat(start - transform.position);
+        away = away.sqrMagnitude > 0.0001f ? away.normalized : transform.forward;
+        Vector3 side = Vector3.Cross(Vector3.up, away) * Random.Range(-0.6f, 0.6f);
+        Vector3 end = start + (away + side).normalized * Random.Range(0.06f, 0.14f);
+
+        crouchTarget = 0.6f;
+        for (float t = 0f; t < 0.22f; t += Time.deltaTime)
+        {
+            if (!Available(item)) { crouchTarget = 0f; yield break; }
+            float k = t / 0.22f;
+            item.transform.position = Vector3.Lerp(start, end, k) + Vector3.up * Mathf.Sin(k * Mathf.PI) * 0.1f;
+            yield return null;
+        }
+        if (Available(item)) item.transform.position = end;
+        crouchTarget = 0.2f;
+        yield return Face(end, 0.15f);
+    }
+
+    /// <summary>Swipes something off furniture so it tumbles onto the floor ("THUD").</summary>
+    IEnumerator KnockOff(Carryable item, bool catIsBelow)
+    {
+        Vector3 start = item.transform.position;
+        Vector3 land;
+        if (catIsBelow)
+        {
+            // Lands right in front of the cat.
+            land = transform.position + transform.forward * 0.35f * Size;
+            if (NavMesh.SamplePosition(land, out var hit, 1f, NavMesh.AllAreas) && IsFloorSpot(hit.position) && SameFloor(hit.position))
+                land = hit.position;
+            else
+                land = transform.position;
+        }
         else
-            land = hit.position;
+        {
+            // Pushed over the edge: lands on the floor next to the furniture.
+            if (!FindFloorSpot(start, 1.6f, false, out land)) yield break;
+        }
 
         crouchTarget = 0f;
         Quaternion startRotation = item.transform.rotation;
@@ -672,29 +919,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         if (!item || item.IsHeld || item.TakenBy) yield break;
         item.PlaceAt(land, Random.Range(0f, 360f));
         FloatingWord.Spawn("THUD", land + Vector3.up * 0.3f * Size, HudArt.Ink, font, 1.3f, 1.2f);
-    }
-
-    /// <summary>A quick paw swipe: the cat dips forward and the item skitters away a little.</summary>
-    IEnumerator Swat(Carryable item)
-    {
-        Vector3 start = item.transform.position;
-        Vector3 away = start - transform.position;
-        away.y = 0f;
-        away = away.sqrMagnitude > 0.0001f ? away.normalized : transform.forward;
-        Vector3 side = Vector3.Cross(Vector3.up, away) * Random.Range(-0.6f, 0.6f);
-        Vector3 end = start + (away + side).normalized * Random.Range(0.06f, 0.14f);
-
-        crouchTarget = 0.6f;
-        for (float t = 0f; t < 0.22f; t += Time.deltaTime)
-        {
-            if (!Available(item)) { crouchTarget = 0f; yield break; }
-            float k = t / 0.22f;
-            item.transform.position = Vector3.Lerp(start, end, k) + Vector3.up * Mathf.Sin(k * Mathf.PI) * 0.1f;
-            yield return null;
-        }
-        if (Available(item)) item.transform.position = end;
-        crouchTarget = 0.2f;
-        yield return Face(end, 0.15f);
+        if (!catIsBelow) yield return Face(land, 0.25f); // look down at what it did
     }
 
     // ------------------------------------------------------------------ helpers
@@ -719,7 +944,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         wiggle = 0f;
         hop = 0f;
         if (napOn) { napOn.BlockedBy = null; napOn = null; }
-        if (agent.isOnNavMesh) { agent.isStopped = false; agent.ResetPath(); }
+        keyboardOf = null;
+        Halt();
+        if (agent.isOnNavMesh) agent.isStopped = false;
         agent.updateRotation = true;
         agent.speed = walkSpeed;
         mood = Mood.Idle;
@@ -731,7 +958,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         var item = carried;
         carried = null;
         Vector3 spot = transform.position + transform.forward * 0.3f * Size;
-        if (NavMesh.SamplePosition(spot, out var hit, 1f, NavMesh.AllAreas) && IsFloorSpot(hit.position) && SameFloor(hit.position))
+        if (NavMesh.SamplePosition(spot, out var hit, 1f, NavMesh.AllAreas) && Mathf.Abs(hit.position.y - transform.position.y) < 0.2f)
             spot = hit.position;
         else
             spot = transform.position;
@@ -745,6 +972,60 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     {
         if (!agent.isOnNavMesh || !NavMesh.SamplePosition(position, out var hit, 1.2f, NavMesh.AllAreas)) return false;
         return agent.CalculatePath(hit.position, path) && path.status == NavMeshPathStatus.PathComplete;
+    }
+
+    bool CanGetTo(Carryable item) => SpotAt(item, out _) || FindFloorSpot(item.transform.position, 1.4f, true, out _);
+
+    /// <summary>A reachable spot right at the item's level (on the floor or up on the furniture it sits on).</summary>
+    bool SpotAt(Carryable item, out Vector3 spot)
+    {
+        spot = item.transform.position;
+        float bottom = ItemBottom(item);
+        if (!NavMesh.SamplePosition(new Vector3(spot.x, bottom + 0.05f, spot.z), out var hit, 0.6f, NavMesh.AllAreas)) return false;
+        if (Mathf.Abs(hit.position.y - bottom) > 0.25f) return false;
+        if (!CanReach(hit.position)) return false;
+        spot = hit.position;
+        return true;
+    }
+
+    /// <summary>A spot on the desk next to the homework (for lying on the keyboard).</summary>
+    bool DeskSpot(TypingTask homework, bool mustReach, out Vector3 spot)
+    {
+        spot = homework.transform.position;
+        Bounds b = default;
+        bool any = false;
+        foreach (var c in homework.GetComponentsInChildren<Collider>())
+        {
+            if (c.isTrigger) continue;
+            if (!any) { b = c.bounds; any = true; } else b.Encapsulate(c.bounds);
+        }
+        if (!any) return false;
+        if (!CatNavMesh.FindTop(b, out var hit)) return false; // no room on top of the desk
+        if (mustReach && !CanReach(hit.position)) return false;
+        spot = hit.position;
+        return true;
+    }
+
+    bool TryPickPerch(bool nearest, out CatNavMesh.Perch perch)
+    {
+        perch = default;
+        var options = new List<CatNavMesh.Perch>();
+        foreach (var p in CatNavMesh.Perches)
+        {
+            if (Mathf.Abs(p.top.y - transform.position.y) > 1.6f) continue;   // same storey
+            if (Flat(p.top - transform.position).magnitude > 12f) continue;
+            options.Add(p);
+        }
+        if (nearest) options.Sort((a, b) => Flat(a.top - transform.position).sqrMagnitude.CompareTo(Flat(b.top - transform.position).sqrMagnitude));
+        else for (int i = options.Count - 1; i > 0; i--) { int j = Random.Range(0, i + 1); (options[i], options[j]) = (options[j], options[i]); }
+
+        int tries = 0;
+        foreach (var p in options)
+        {
+            if (tries++ > 6) break;
+            if (CanReach(p.top)) { perch = p; return true; }
+        }
+        return false;
     }
 
     /// <summary>A random floor spot on the cat's current floor.</summary>
@@ -776,10 +1057,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     // ------------------------------------------------------------------ where the cat may stand
 
-    /// <summary>
-    /// True if the point is on one of the house's real floors: not on top of furniture (tables,
-    /// shelves, beds), not outside the house and not under it.
-    /// </summary>
+    /// <summary>True if the point is on one of the house's real floors (not on furniture, outside or under the house).</summary>
     bool IsFloorSpot(Vector3 point)
     {
         if (!house) return true;
@@ -792,8 +1070,6 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             if (t.IsChildOf(transform)) continue;                          // the cat itself
             if (furniture && t.IsChildOf(furniture)) continue;             // look through rugs/tables to the real floor
             if (col.GetComponentInParent<Carryable>() || col.GetComponentInParent<PlayerMovementAdvanced>()) continue;
-
-            // First real surface below: it must be part of the house, right under the point.
             return t.IsChildOf(house) && point.y - probeHits[i].point.y < 0.35f;
         }
         return false;
@@ -830,10 +1106,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     bool Connected(Vector3 a, Vector3 b) =>
         NavMesh.CalculatePath(a, b, NavMesh.AllAreas, testPath) && testPath.status == NavMeshPathStatus.PathComplete;
 
-    bool SameFloor(Vector3 point) => Mathf.Abs(point.y - transform.position.y) < 1f;
+    bool SameFloor(Vector3 point) => Mathf.Abs(point.y - transform.position.y) < 1.6f;
 
-    /// <summary>Is the item sitting up on something (table, shelf) rather than on the floor by the cat?</summary>
-    bool IsUpHigh(Carryable item)
+    float ItemBottom(Carryable item)
     {
         float bottom = item.transform.position.y;
         bool any = false;
@@ -842,53 +1117,15 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             bottom = any ? Mathf.Min(bottom, r.bounds.min.y) : r.bounds.min.y;
             any = true;
         }
-        return bottom - transform.position.y > 0.3f;
+        return bottom;
     }
 
-    static Vector3 Flat(Vector3 v) { v.y = 0f; return v; }
+    /// <summary>Is the item sitting up on something, above the cat's feet?</summary>
+    bool IsUpHigh(Carryable item) => ItemBottom(item) - transform.position.y > 0.3f;
 
-    class HitOrder : IComparer<RaycastHit>
-    {
-        public int Compare(RaycastHit a, RaycastHit b) => a.distance.CompareTo(b.distance);
-    }
-
-    /// <summary>
-    /// Keeps a code tweak on a bone (crouch, head turn...) from piling up frame after frame.
-    /// Some bones (like this cat's "Root") aren't moved by the animations, so a tweak added on top
-    /// would otherwise stack every frame - that's what sank the cat through the floor. If the bone
-    /// still holds exactly what we wrote last frame, the animation didn't touch it: put it back first.
-    /// </summary>
-    struct BoneTweak
-    {
-        Vector3 basePosition, writtenPosition, restPosition;
-        Quaternion baseRotation, writtenRotation;
-        bool written, hasRest;
-
-        public void Begin(Transform bone)
-        {
-            if (written && bone.localPosition == writtenPosition && bone.localRotation == writtenRotation)
-            {
-                bone.localPosition = basePosition;
-                bone.localRotation = baseRotation;
-            }
-            // Safety net: if the bone has wandered far from where it started, snap it back.
-            if (!hasRest) { restPosition = bone.localPosition; hasRest = true; }
-            else if ((bone.localPosition - restPosition).sqrMagnitude > 0.25f)
-            {
-                Debug.LogWarning($"[Cat] Bone '{bone.name}' drifted to {bone.localPosition} - snapping it back.");
-                bone.localPosition = restPosition;
-            }
-            basePosition = bone.localPosition;
-            baseRotation = bone.localRotation;
-        }
-
-        public void End(Transform bone)
-        {
-            writtenPosition = bone.localPosition;
-            writtenRotation = bone.localRotation;
-            written = true;
-        }
-    }
+    /// <summary>Is the item on furniture (rather than on the floor)?</summary>
+    bool IsOnFurniture(Carryable item) =>
+        FindFloorSpot(item.transform.position, 1.6f, false, out var floor) && ItemBottom(item) - floor.y > 0.25f;
 
     Vector3 PlayerPos() => player ? player.position : transform.position - transform.forward;
 
@@ -906,5 +1143,48 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         foreach (var t in GetComponentsInChildren<Transform>(true))
             if (t.name == boneName) return t;
         return null;
+    }
+
+    static Vector3 Flat(Vector3 v) { v.y = 0f; return v; }
+
+    class HitOrder : IComparer<RaycastHit>
+    {
+        public int Compare(RaycastHit a, RaycastHit b) => a.distance.CompareTo(b.distance);
+    }
+
+    /// <summary>
+    /// Keeps a code tweak on a bone (head turn, wiggle...) from piling up frame after frame:
+    /// if the bone still holds exactly what we wrote last frame, the animation didn't touch it,
+    /// so put it back first. Also snaps a bone back if it ever wanders far from where it started.
+    /// </summary>
+    struct BoneTweak
+    {
+        Vector3 basePosition, writtenPosition, restPosition;
+        Quaternion baseRotation, writtenRotation;
+        bool written, hasRest;
+
+        public void Begin(Transform bone)
+        {
+            if (written && bone.localPosition == writtenPosition && bone.localRotation == writtenRotation)
+            {
+                bone.localPosition = basePosition;
+                bone.localRotation = baseRotation;
+            }
+            if (!hasRest) { restPosition = bone.localPosition; hasRest = true; }
+            else if ((bone.localPosition - restPosition).sqrMagnitude > 0.25f)
+            {
+                Debug.LogWarning($"[Cat] Bone '{bone.name}' drifted to {bone.localPosition} - snapping it back.");
+                bone.localPosition = restPosition;
+            }
+            basePosition = bone.localPosition;
+            baseRotation = bone.localRotation;
+        }
+
+        public void End(Transform bone)
+        {
+            writtenPosition = bone.localPosition;
+            writtenRotation = bone.localRotation;
+            written = true;
+        }
     }
 }
