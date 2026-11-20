@@ -19,6 +19,10 @@ using UnityEngine.SceneManagement;
 ///
 /// The new scene starts as a copy of HouseScene (so the player, camera, HUD, managers and cat
 /// come along) with the old house removed. HouseScene itself is not changed.
+/// Tasks are wired in as part of the build: homework at your desk, TVs (living room, game room, cinema)
+/// + the remote on the coffee table, the kitchen oven (fire -> extinguisher in the pantry), laundry
+/// (dirty clothes in the kid's room -> washer), and a leak from the top-floor WC into the library
+/// (bucket + mop in the mudroom).
 /// Interior only for now - the garden/outside comes later.
 /// </summary>
 public static class HouseBuilder
@@ -31,6 +35,12 @@ public static class HouseBuilder
     const int GroundLayer = 10, WallLayer = 9;
     /// <summary>How much bigger than the kit's real size the whole house is built (rooms, stairs, furniture).</summary>
     public static float HouseScale = 1.3f;
+    /// <summary>
+    /// Furniture is built at this fraction of the house scale (1.3 x 0.85 = about 1.1x real size), so the
+    /// rooms are big but the furniture still fits a person - that's what keeps rooms from feeling cramped.
+    /// </summary>
+    const float FurnitureScale = 0.85f;
+    static readonly HashSet<string> FitToWindow = new HashSet<string> { "Curtains (Open Side)", "Blinds (Open)" };
 
     static readonly string[] PrefabFolders =
     {
@@ -75,11 +85,14 @@ public static class HouseBuilder
     static List<Room> rooms;
     static readonly Dictionary<(int, string, string), bool> links = new Dictionary<(int, string, string), bool>(); // (floor, a, b) -> open?
     static readonly List<Segment> doors = new List<Segment>();
+    static readonly List<HouseLayout.WallInfo> mapWalls = new List<HouseLayout.WallInfo>();
     static readonly List<string> missing = new List<string>();
     static readonly Dictionary<string, GameObject> prefabCache = new Dictionary<string, GameObject>();
     static Transform root, structure, furnitureRoot;
     static Material wood, plaster, metal, garageDoorMat, ceilingMat;
     static int placed, skipped;
+    /// <summary>What the tasks get wired onto (filled in while furnishing).</summary>
+    static HouseTaskSetup.HouseTaskObjects taskObjects = new HouseTaskSetup.HouseTaskObjects();
 
     // Keep-clear areas in front of doors/archways, and the footprints of furniture already placed (plan metres).
     static readonly List<(int floor, Rect rect)> clearZones = new List<(int, Rect)>();
@@ -187,9 +200,10 @@ public static class HouseBuilder
             !EditorUtility.DisplayDialog("Build New House", "NewHouse.unity already exists. Rebuild it from scratch? (HouseScene is not touched.)", "Rebuild", "Cancel"))
             return;
 
-        missing.Clear(); doors.Clear(); prefabCache.Clear(); prefabIndex = null; placed = 0; skipped = 0;
+        missing.Clear(); doors.Clear(); mapWalls.Clear(); prefabCache.Clear(); prefabIndex = null; placed = 0; skipped = 0;
+        taskObjects = new HouseTaskSetup.HouseTaskObjects();
         clearZones.Clear(); footprints.Clear(); windowsBuilt.Clear(); floorMats.Clear();
-        windowZones.Clear(); windowOverrides.Clear(); wallMats.Clear(); roomOfGroup.Clear();
+        windowZones.Clear(); windowOverrides.Clear(); wallMats.Clear(); roomOfGroup.Clear(); wallArt.Clear();
 
         if (File.Exists(TargetScene)) AssetDatabase.DeleteAsset(TargetScene);
         if (!AssetDatabase.CopyAsset(SourceScene, TargetScene)) { EditorUtility.DisplayDialog("Build New House", "Couldn't copy HouseScene.", "OK"); return; }
@@ -225,10 +239,13 @@ public static class HouseBuilder
             WindowDressing();
             EditorUtility.DisplayProgressBar("Building the house", "Furniture", 0.6f);
             Furnish();
+            FillEmptyRooms();
             EditorUtility.DisplayProgressBar("Building the house", "Player, cat and walk map", 0.85f);
             WriteLayout();
             ScaleHouse();
             PlacePlayerAndCat();
+            EditorUtility.DisplayProgressBar("Building the house", "Tasks", 0.9f);
+            taskReport = HouseTaskSetup.SetUpTasksInNewHouse(taskObjects);
             HouseTaskSetup.PrepareCatForHouse();
 
             EditorSceneManager.MarkSceneDirty(scene);
@@ -243,6 +260,7 @@ public static class HouseBuilder
         string message = $"Built NewHouse.unity: {rooms.Count(r => r.Indoor)} rooms over 3 floors + garage, {placed} pieces of furniture, at {HouseScale}x size.\n" +
                          (skipped > 0 ? $"{skipped} pieces were left out because they would have blocked a doorway or a path.\n" : "") +
                          "\nStart: the foyer (ground floor). Garage door: press E on it. Minimap: top left (M hides it).";
+        if (!string.IsNullOrEmpty(taskReport)) message += "\n\n" + taskReport;
         if (missing.Count > 0) message += "\n\nCouldn't find these prefabs (skipped):\n- " + string.Join("\n- ", missing.Distinct());
         message += "\n\nThe scene is saved. Press Play to walk around.";
         Debug.Log("[Build New House]\n" + message);
@@ -251,6 +269,8 @@ public static class HouseBuilder
     }
 
     static string FloorName(int f) => f == 0 ? "Ground" : f == 1 ? "First" : "Top";
+
+    static string taskReport;
 
     static void RemoveOldHouse(Scene scene)
     {
@@ -348,8 +368,12 @@ public static class HouseBuilder
         var windowSegments = new HashSet<(bool, int, int)>();
         foreach (var r in floorRooms.Where(r => r.windows))
         {
+            Side? onlySide = null;
+            if (r.kind == Kind.Bath)
+                onlySide = System.Enum.GetValues(typeof(Side)).Cast<Side>().OrderByDescending(sd => OutsideSegments(r, sd).Count).First();
             foreach (Side side in System.Enum.GetValues(typeof(Side)))
             {
+                if (onlySide.HasValue && side != onlySide.Value) continue;
                 var outside = OutsideSegments(r, side);
                 if (windowOverrides.TryGetValue((f, r.name, side), out var chosen))
                 {
@@ -367,7 +391,7 @@ public static class HouseBuilder
             bool aIn = a.Indoor, bIn = b != null && b.Indoor;
             if (!aIn && !bIn)
             {
-                if (b == null) Railing(Group(structure, $"{FloorName(f)} floor/Railings"), s, y);
+                if (b == null) { Railing(Group(structure, $"{FloorName(f)} floor/Railings"), s, y); MapWall(s, HouseLayout.WallType.Railing); }
                 continue;
             }
             if (b != null && aIn && bIn && links.TryGetValue(Key(f, a.name, b.name), out bool open) && open) continue;
@@ -378,15 +402,17 @@ public static class HouseBuilder
             if (doorSegments.Contains(key))
             {
                 var w = Piece("Wall Standard (Door)", parent, at, s.Yaw);
+                MapWall(s, HouseLayout.WallType.Door);
                 MeshColliders(w);
                 PaintWallFaces(w, s);
                 Grow(Piece("Door Frame 1", parent, s.Center(y), s.Yaw), 1.012f);
-                KeepClear(f, s, 1.4f, 1.3f);
+                KeepClear(f, s, 1.2f, 1.0f);
             }
             else if (windowSegments.Contains(key))
             {
                 string style = indoor.kind == Kind.Living || indoor.kind == Kind.Fun ? "3" : indoor.kind == Kind.Bedroom ? "1" : "4";
                 var w = Piece($"Wall Standard (Window {style})", parent, at, s.Yaw);
+                MapWall(s, HouseLayout.WallType.Window);
                 MeshColliders(w);
                 PaintWallFaces(w, s);
                 var frame = Piece($"Window {style}", parent, s.Center(y), s.Yaw);
@@ -397,13 +423,14 @@ public static class HouseBuilder
             else
             {
                 PaintWallFaces(Piece("Wall Standard", parent, at, s.Yaw), s);
+                MapWall(s, HouseLayout.WallType.Wall);
             }
         }
 
         // Archways (open links) stay clear too, so you can walk straight through.
         foreach (var (a, b, s) in edges)
             if (b != null && links.TryGetValue(Key(f, a.name, b.name), out bool isOpen) && isOpen)
-                KeepClear(f, s, 2f, 0.9f);
+                KeepClear(f, s, 2f, 0.7f);
 
         // Columns where the outside wall turns a corner (hides the little gaps at corners).
         var vertices = new HashSet<(int, int)>();
@@ -430,6 +457,14 @@ public static class HouseBuilder
     static bool IsIndoor(int f, int x, int z) { var r = RoomAt(f, x, z); return r != null && r.Indoor; }
 
     /// <summary>A keep-clear box centred on a wall segment, 'width' along it and 'depth' into both sides.</summary>
+    static void MapWall(Segment s, HouseLayout.WallType type) => mapWalls.Add(new HouseLayout.WallInfo
+    {
+        floor = s.floor,
+        a = s.alongX ? new Vector2(s.start, s.line) : new Vector2(s.line, s.start),
+        b = s.alongX ? new Vector2(s.start + 2, s.line) : new Vector2(s.line, s.start + 2),
+        type = type,
+    });
+
     static void KeepClear(int f, Segment s, float width, float depth)
     {
         Vector3 c = s.Center(0f);
@@ -644,6 +679,8 @@ public static class HouseBuilder
         Wall(0, "Mudroom", "Wall Shelf 2|Wall Shelf", Side.W, 0.75f, 1.6f);
         Wall(0, "Mudroom", "Plastic Basket", Side.N, 0.15f);
         Wall(0, "Mudroom", "Plant Deco 1|Plant 1", Side.S, 0.1f);
+        Wall(0, "Mudroom", "Mop", Side.N, 0.45f);      // task tools: mop up floods,
+        Wall(0, "Mudroom", "Bucket", Side.N, 0.7f);    // catch the ceiling leak
 
         // Foyer: console with an entry mirror, runner rug, a big plant.
         var console = Wall(0, "Foyer", "Bed Table|Drawer B", Side.W, 0.3f);
@@ -678,12 +715,13 @@ public static class HouseBuilder
         Wall(0, "Pantry", "Shelf - Box|Shelf", Side.S, 0.5f);
         Wall(0, "Pantry", "fridge_001", Side.W, 0.08f);
         Center(0, "Pantry", "Small Box", 0.45f, 0.35f, 20f);
+        Wall(0, "Pantry", "Fire Extinguisher", Side.N, 0.88f);
 
         // Kitchen: sink under the window, fridge at the end of the run, oven on the other wall.
         Wall(0, "Kitchen", "Fridge", Side.E, 0.0f, snug: true);
         var counter = Wall(0, "Kitchen", "Counter (Connected)", Side.E, 0.4f, snug: true);
         var sink = Wall(0, "Kitchen", "Counter (Connected - Sink)", Side.E, 0.78f, snug: true);
-        Wall(0, "Kitchen", "Oven", Side.S, 0.35f, snug: true);
+        taskObjects.oven = Wall(0, "Kitchen", "Oven", Side.S, 0.35f, snug: true);
         var counter2 = Wall(0, "Kitchen", "Counter (Connected) 2|Counter (Connected) Variant", Side.S, 0.75f, snug: true);
         On(counter, "Coffee Machine|coffee_machine_001", 0.5f, 0.6f);
         On(sink, "dish_001", 0.2f, 0.5f);
@@ -703,12 +741,18 @@ public static class HouseBuilder
 
         // Living room: the fireplace is the focal point, TV above it, sofa facing it, armchairs either side.
         var fire = Wall(0, "Living room", "Fireplace", Side.N, 0.5f);
-        if (fire) { FireGlow(fire); Above(fire, "TV 2 (Curved - Wall)|Painting 1", 0.25f); }
+        if (fire)
+        {
+            FireGlow(fire);
+            var livingTv = Above(fire, "TV 2 (Curved - Wall)|Painting 1", 0.25f);
+            if (livingTv && livingTv.name.StartsWith("TV")) taskObjects.tvs.Add((livingTv, "Living room TV", null));
+        }
         Center(0, "Living room", "Rug Tile|Rug A", 0.5f, 0.52f, 0f);
         var sofa = Center(0, "Living room", "Sofa|Sofa 1|Sofa 2", 0.5f, 0.28f, 0f);
         On(sofa, "Simple Pillow (Sofa)", 0.25f, 0.4f);
         var coffee = Center(0, "Living room", "Coffee Table|coffee_table_001", 0.5f, 0.52f, 0f);
         On(coffee, "Book Pile 1|Book", 0.3f, 0.5f);
+        taskObjects.remote = On(coffee ? coffee : sofa, "Controller (TV)|Controller TV", 0.75f, 0.45f, 80f);
         Center(0, "Living room", "lounge_chair_001|Chair 2", 0.12f, 0.6f, 90f);
         Center(0, "Living room", "Chair 2|lounge_chair_001", 0.84f, 0.6f, -90f);
         Wall(0, "Living room", "scratching_post_001", Side.S, 0.62f);
@@ -731,6 +775,21 @@ public static class HouseBuilder
         Wall(0, "Playroom", "Simple Shelf|Shelf - Simple", Side.S, 0.5f);
         Wall(0, "Playroom", "Small Whiteboard|Whiteboard (Wall)", Side.S, 0.5f, 1.2f);
         Wall(0, "Playroom", "Poster 2|Poster 1", Side.E, 0.85f, 1.6f);
+
+        // WC (top floor) - furnished before the first floor: its sink is the tap that leaks, and the spot
+        // right below it in the library is kept free for the drips and the bucket.
+        Wall(2, "WC", "Toilet", Side.N, 0.5f);
+        var wcSink = Wall(2, "WC", "Sink", Side.W, 0.35f);
+        Above(wcSink, "Mirror", 0.3f);
+        if (wcSink)
+        {
+            taskObjects.leakSink = wcSink;
+            var below = Find(1, "Library");
+            var b = Bounds(wcSink);
+            float x0 = Mathf.Max(below.x0 + 0.07f, b.center.x - 0.6f), x1 = Mathf.Min(below.x1 - 0.07f, b.center.x + 0.6f);
+            float z0 = Mathf.Max(below.z0 + 0.07f, b.center.z - 0.6f), z1 = Mathf.Min(below.z1 - 0.07f, b.center.z + 0.6f);
+            if (x1 > x0 && z1 > z0) clearZones.Add((1, Rect.MinMaxRect(x0, z0, x1, z1)));
+        }
 
         // ================= First floor =================
 
@@ -757,6 +816,7 @@ public static class HouseBuilder
 
         // Laundry
         var washer = Wall(1, "Laundry", "Washing Machine|washing_machine_001", Side.S, 0.25f, snug: true);
+        taskObjects.washer = washer;
         Wall(1, "Laundry", "Dryer Machine", Side.S, 0.6f, snug: true);
         On(washer, "Washing Product", 0.5f, 0.5f);
         Wall(1, "Laundry", "Plastic Basket", Side.W, 0.75f);
@@ -780,6 +840,7 @@ public static class HouseBuilder
         foreach (var stand in Beside(yourBed, "Bed Table", -1)) On(stand, "Small Lamp 3|Small Lamp 1", 0.5f, 0.5f);
         Above(yourBed, "Poster 1|Poster 2", 0.45f);
         var desk = Wall(1, "Your bedroom", "Desk Mechanical 1|Desk Modern|Desk 1", Side.S, 0.5f);
+        taskObjects.desk = desk;
         if (desk)
         {
             On(desk, "Monitor 4 Curved", 0.5f, 0.25f);
@@ -797,6 +858,7 @@ public static class HouseBuilder
         Wall(1, "Bathroom", "Bathtub-Shower|Bathtub", Side.W, 0.5f);
         Wall(1, "Bathroom", "Toilet", Side.S, 0.08f);
         var bathSink = Wall(1, "Bathroom", "Sink", Side.E, 0.2f);
+        if (!taskObjects.leakSink) taskObjects.leakSink = bathSink;
         Above(bathSink, "Mirror|Mirror 2", 0.3f);
         On(bathSink, "Toothbrush", 0.3f, 0.5f);
         Wall(1, "Bathroom", "Towel (Wall)", Side.N, 0.15f, 1.15f);
@@ -836,6 +898,9 @@ public static class HouseBuilder
         Center(1, "Kid's room", "toy_002", 0.4f, 0.6f, 70f);
         Center(1, "Kid's room", "Puff|Puff Variant", 0.78f, 0.6f, 0f);
         Wall(1, "Kid's room", "Fan", Side.W, 0.05f);
+        // The laundry pile (hidden until the laundry task starts; the cat likes to nap on it).
+        taskObjects.clothes = Center(1, "Kid's room", "clothes_001|clothes_002", 0.72f, 0.28f, 25f);
+        taskObjects.clothesRoom = "in the kid's room";
 
         // ================= Top floor =================
 
@@ -850,7 +915,8 @@ public static class HouseBuilder
         Center(2, "Balcony", "Plant 3", 0.92f, 0.12f, 0f);
 
         // Home cinema: big screen, two rows of sofas, speakers.
-        CinemaScreen(2, "Home cinema", Side.S, 2.9f, 1.62f, 0.75f);
+        var cinema = CinemaScreen(2, "Home cinema", Side.S, 2.9f, 1.62f, 0.75f);
+        if (cinema) taskObjects.tvs.Add((cinema, "Home cinema screen", cinema.transform.Find("Screen")?.GetComponent<Renderer>()));
         Wall(2, "Home cinema", "Speaker 4|Speaker 3", Side.S, 0.0f);
         Wall(2, "Home cinema", "Speaker 4|Speaker 3", Side.S, 1.0f);
         Center(2, "Home cinema", "Sofa 2|Sofa", 0.5f, 0.5f, 180f);
@@ -875,15 +941,445 @@ public static class HouseBuilder
         On(snack, "drink_002", 0.6f, 0.5f);
         Wall(2, "Game room", "Glass Expositor x1", Side.N, 0.6f);
         Wall(2, "Game room", "Poster 1|Poster 2", Side.W, 0.5f, 1.6f);
-        Wall(2, "Game room", "TV 5 Mounted", Side.N, 0.35f, 1.3f);
+        var gameTv = Wall(2, "Game room", "TV 5 Mounted", Side.N, 0.35f, 1.3f);
+        if (gameTv) taskObjects.tvs.Add((gameTv, "Game room TV", null));
         Center(2, "Game room", "Puff", 0.3f, 0.75f, 0f);
         Wall(2, "Game room", "Speaker 2", Side.N, 0.98f);
         if (pool) Center(2, "Game room", "Rug Tile", 0.66f, 0.5f, 0f);
 
-        // WC
-        Wall(2, "WC", "Toilet", Side.N, 0.5f);
-        var wcSink = Wall(2, "WC", "Sink", Side.W, 0.35f);
-        Above(wcSink, "Mirror", 0.3f);
+    }
+
+    // ---- filling rooms that still feel empty
+
+    static readonly Dictionary<Room, int> wallArt = new Dictionary<Room, int>();
+
+    /// <summary>
+    /// After the hand-made layout: top up any room whose furniture covers less of the floor than a lived-in
+    /// room of its kind would (storage, plants, lamps, seats in the corners and along free walls), and give
+    /// bare walls some art. Logs how full each room ended up.
+    /// </summary>
+    static void FillEmptyRooms()
+    {
+        var report = new List<string>();
+        foreach (var room in rooms)
+        {
+            if (room.kind == Kind.Stairs || room.kind == Kind.Outdoor || room.kind == Kind.Garage) continue;
+            float target = room.kind switch
+            {
+                Kind.Hall => Mathf.Min(room.x1 - room.x0, room.z1 - room.z0) >= 4 ? 0.08f : 0.03f, // foyer/landings are rooms, corridors aren't
+                Kind.Bath => 0.15f,
+                Kind.Service => 0.18f,
+                _ => 0.18f, // lower than a real room: the hand-made layout already has the pieces that matter
+            };
+            float before = Coverage(room);
+            var fillers = Fillers(room);
+            int start = Mathf.Abs(room.name.GetHashCode()) % 4;
+            for (int i = 0; i < fillers.Length && Coverage(room) < target; i++)
+                Wall(room.floor, room.name, fillers[i], (Side)((start + i) % 4), i % 2 == 0 ? 0.08f : 0.92f, quiet: true);
+
+            var art = Art(room);
+            wallArt.TryGetValue(room, out int have);
+            for (int i = 0; have < art.count && i < art.prefabs.Length; i++)
+                if (Wall(room.floor, room.name, art.prefabs[i], (Side)((start + 2 + i) % 4), 0.5f, 1.45f, quiet: true)) have++;
+
+            report.Add($"{FloorName(room.floor)} - {room.name}: {before * 100f:0}% -> {Coverage(room) * 100f:0}% (target {target * 100f:0}%)");
+        }
+        Debug.Log("[Build New House] Room fill (furniture floor area / usable floor):\n" + string.Join("\n", report));
+    }
+
+    static float Coverage(Room room)
+    {
+        var area = new Rect(room.x0 + 0.1f, room.z0 + 0.1f, room.x1 - room.x0 - 0.2f, room.z1 - room.z0 - 0.2f);
+        float covered = 0f;
+        foreach (var (f, r, owner) in footprints)
+        {
+            if (f != room.floor || !owner) continue;
+            float w = Mathf.Min(r.xMax, area.xMax) - Mathf.Max(r.xMin, area.xMin);
+            float d = Mathf.Min(r.yMax, area.yMax) - Mathf.Max(r.yMin, area.yMin);
+            if (w > 0f && d > 0f) covered += w * d;
+        }
+        return covered / Mathf.Max(0.01f, area.width * area.height);
+    }
+
+    static string[] Fillers(Room room) => room.name switch
+    {
+        "Music room" => new[] { "Speaker 2|Speaker 3", "Bookshelf", "Plant 3|Plant 2", "Chair 2|lounge_chair_001", "Lamp 1|Lamp 2" },
+        "Playroom" => new[] { "Shelf - Box|Simple Shelf", "Puff Variant|Puff", "Plant 2", "Drawer A", "Toy House" },
+        "Office" => new[] { "Bookshelf|Library", "File Cabinet Small", "Plant 5|Plant 2", "Chair 2", "Simple Shelf" },
+        "Library" => new[] { "Bookshelf", "Library", "Plant 4|Plant 1", "Lamp 2|Lamp 1", "Puff" },
+        "Home cinema" => new[] { "Speaker 3|Speaker 2", "Drawer B|Drawer A", "Puff Variant|Puff", "Plant 1" },
+        "Game room" => new[] { "Shelf - Box|Shelf", "Puff Variant|Puff", "Speaker 4|Speaker 2", "Plant 2|Plant 3", "Stool 1|Stool", "Glass Expositor x1" },
+        "Kitchen" => new[] { "Counter (Connected)|Counter 1", "fridge_001", "Plant 1" },
+        "Dining" => new[] { "Drawer B|Drawer A", "Plant 3|Plant 2", "Simple Shelf|Shelf - Simple", "Lamp 1" },
+        "Pantry" => new[] { "Shelf - Box|Shelf", "Modern Shelves Variant|Modern Shelves", "box_001|Small Box", "Plastic Basket" },
+        "Foyer" => new[] { "Drawer B|Drawer A", "Plant Deco 1|Plant 3", "Chair 2|Stool 1", "Plant 2" },
+        "Landing" => new[] { "Bookshelf|Simple Shelf", "Puff|Puff Variant", "Plant 3|Plant 1", "Chair 2|lounge_chair_001", "Drawer B" },
+        "Mudroom" => new[] { "Shelf - Box|Shelf", "Plastic Basket", "Drawer A" },
+        "Walk-in closet" => new[] { "Drawer 4|Drawer A", "Wardrobe|closet_001", "Simple Shelf", "Puff" },
+        _ => room.kind switch
+        {
+            Kind.Living => new[] { "Plant Deco 1|Plant 3", "Bookshelf|Modern Shelves", "Drawer B|Drawer A", "Lamp 1|Lamp 2", "Chair 2|lounge_chair_001", "Plant 5|Plant 2" },
+            Kind.Bedroom => new[] { "Drawer 4|Drawer A", "Wardrobe|closet_001", "Bookshelf|Simple Shelf", "Plant 4|Plant 1", "Lamp 2|Lamp 1", "Puff|Puff Variant", "Chair 2" },
+            Kind.Fun => new[] { "Shelf - Box|Shelf", "Puff|Puff Variant", "Plant 2|Plant 3", "Lamp 1" },
+            Kind.Bath => new[] { "Plastic Basket", "Plant 1|Plant 5", "Simple Shelf|Shelf - Simple" },
+            Kind.Service => new[] { "Shelf - Box|Shelf", "Simple Shelf|Shelf - Simple", "Modern Shelves Variant|Modern Shelves", "Plastic Basket", "box_001|Small Box" },
+            Kind.Hall => new[] { "Plant Deco 1|Plant 2", "Bed Table|Drawer A", "Plant 3|Plant 1" },
+            _ => new string[0],
+        },
+    };
+
+    static (int count, string[] prefabs) Art(Room room) => room.name switch
+    {
+        "Your bedroom" or "Game room" => (2, new[] { "Poster 1|Poster 2", "Poster 2|Poster 1", "Painting Small 4" }),
+        "Kid's room" or "Playroom" => (2, new[] { "Poster 2|Poster 1", "Painting Small 1|Small Painting", "Painting Small 2" }),
+        "Home cinema" => (1, new[] { "Poster 1|Poster 2" }),
+        _ => room.kind switch
+        {
+            Kind.Living or Kind.Fun => (2, new[] { "Painting 2|Painting 1", "Painting Small 1|Painting Small 2", "Big Painting", "Painting Small 3" }),
+            Kind.Bedroom => (2, new[] { "Painting 3|Painting 2", "Painting Small 3|Painting Small 4", "Small Painting 2" }),
+            Kind.Hall => (1, new[] { "Painting Small|Painting Small Alt", "Painting Small 2" }),
+            _ => (0, new string[0]),
+        },
+    };
+
+    // ---- simple props built from primitives (no free model needed): the task tools
+
+    static readonly HashSet<string> Props = new HashSet<string> { "Fire Extinguisher", "Mop", "Bucket" };
+
+    /// <summary>A small prop made of primitives, pivot at the bottom centre, front = +Z. No colliders (placement adds a box).</summary>
+    static GameObject Prop(string name, Transform parent)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var t = go.transform;
+        switch (name)
+        {
+            case "Fire Extinguisher":
+            {
+                var red = Mat("Extinguisher Red", new Color(0.8f, 0.08f, 0.06f), 0.55f);
+                var black = Mat("Extinguisher Black", new Color(0.08f, 0.08f, 0.08f), 0.3f);
+                PropPart(PrimitiveType.Cylinder, "Body", t, new Vector3(0f, 0.25f, 0f), new Vector3(0.17f, 0.25f, 0.17f), red);
+                PropPart(PrimitiveType.Sphere, "Shoulder", t, new Vector3(0f, 0.5f, 0f), new Vector3(0.17f, 0.08f, 0.17f), red);
+                PropPart(PrimitiveType.Cylinder, "Valve", t, new Vector3(0f, 0.56f, 0f), new Vector3(0.06f, 0.035f, 0.06f), black);
+                PropPart(PrimitiveType.Cube, "Handle", t, new Vector3(0.035f, 0.61f, 0f), new Vector3(0.14f, 0.02f, 0.035f), black);
+                PropPart(PrimitiveType.Cube, "Hose", t, new Vector3(-0.08f, 0.4f, 0f), new Vector3(0.022f, 0.3f, 0.022f), black);
+                PropPart(PrimitiveType.Cube, "Label", t, new Vector3(0f, 0.27f, 0.083f), new Vector3(0.09f, 0.12f, 0.005f), Mat("Extinguisher Label", new Color(0.95f, 0.93f, 0.85f), 0.1f));
+                break;
+            }
+            case "Mop":
+            {
+                var wood = Mat("Mop Handle", new Color(0.55f, 0.38f, 0.2f), 0.2f);
+                var head = Mat("Mop Head", new Color(0.86f, 0.86f, 0.8f), 0.05f);
+                var blue = Mat("Bucket Blue", new Color(0.15f, 0.4f, 0.8f), 0.4f);
+                PropPart(PrimitiveType.Cylinder, "Handle", t, new Vector3(0f, 0.66f, 0f), new Vector3(0.03f, 0.56f, 0.03f), wood);
+                PropPart(PrimitiveType.Cube, "Clamp", t, new Vector3(0f, 0.1f, 0f), new Vector3(0.12f, 0.04f, 0.06f), blue);
+                PropPart(PrimitiveType.Cube, "Head", t, new Vector3(0f, 0.04f, 0f), new Vector3(0.36f, 0.08f, 0.14f), head);
+                break;
+            }
+            case "Bucket":
+            {
+                var blue = Mat("Bucket Blue", new Color(0.15f, 0.4f, 0.8f), 0.4f);
+                var dark = Mat("Extinguisher Black", new Color(0.08f, 0.08f, 0.08f), 0.3f);
+                PropPart(PrimitiveType.Cylinder, "Body", t, new Vector3(0f, 0.17f, 0f), new Vector3(0.32f, 0.17f, 0.32f), blue);
+                PropPart(PrimitiveType.Cylinder, "Rim", t, new Vector3(0f, 0.34f, 0f), new Vector3(0.34f, 0.012f, 0.34f), blue);
+                PropPart(PrimitiveType.Cube, "Handle", t, new Vector3(0f, 0.42f, 0f), new Vector3(0.32f, 0.015f, 0.015f), dark);
+                PropPart(PrimitiveType.Cube, "Handle L", t, new Vector3(-0.16f, 0.38f, 0f), new Vector3(0.015f, 0.08f, 0.015f), dark);
+                PropPart(PrimitiveType.Cube, "Handle R", t, new Vector3(0.16f, 0.38f, 0f), new Vector3(0.015f, 0.08f, 0.015f), dark);
+                break;
+            }
+        }
+        return go;
+    }
+
+    static void PropPart(PrimitiveType shape, string name, Transform parent, Vector3 localPos, Vector3 localScale, Material mat)
+    {
+        var part = GameObject.CreatePrimitive(shape);
+        part.name = name;
+        Object.DestroyImmediate(part.GetComponent<Collider>());
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPos;
+        part.transform.localScale = localScale;
+        part.GetComponent<MeshRenderer>().sharedMaterial = mat;
+    }
+
+    // ------------------------------------------------------------------ your room (redone on its own, without rebuilding the house)
+
+    const string PlayerRoomName = "Your bedroom";
+    static readonly HashSet<string> WindowDressingNames = new HashSet<string> { "Curtains (Open Side)", "Blinds (Open)", "Curtain rod", "Rod end" };
+
+    /// <summary>
+    /// Menu: G7l6 > Redo Your Room (Gaming Room). Turns your bedroom into the player's gaming room - battle-station
+    /// desk (homework is done here), console corner, collectibles, LED lighting - in the saved NewHouse scene.
+    /// Only that room changes; everything else (including your own edits) stays. The old furniture is kept,
+    /// hidden, under "Old furniture (backup)" in the room. Safe to run again.
+    /// </summary>
+    [MenuItem("G7l6/Redo Your Room (Gaming Room)")]
+    public static void RedoPlayerRoomMenu()
+    {
+        if (EditorUtility.DisplayDialog("Redo your room", "Turn your bedroom into the gaming room? Only that room changes; the rest of the house stays as it is.", "Do it", "Cancel"))
+            RedoPlayerRoom();
+    }
+
+    public static void RedoPlayerRoom()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[Your room] Stop Play mode first."); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != TargetScene)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(TargetScene, OpenSceneMode.Single);
+        }
+        var house = scene.GetRootGameObjects().FirstOrDefault(g => g.name == "NewHouse");
+        if (!house) { Debug.LogWarning("[Your room] No 'NewHouse' in the scene."); return; }
+
+        missing.Clear(); prefabCache.Clear(); prefabIndex = null; placed = 0; skipped = 0;
+        clearZones.Clear(); footprints.Clear(); windowZones.Clear(); roomOfGroup.Clear(); wallArt.Clear();
+        wallMats.Clear(); floorMats.Clear(); doors.Clear(); mapWalls.Clear();
+        taskObjects = new HouseTaskSetup.HouseTaskObjects();
+        Materials();
+        DefinePlan();
+        root = house.transform;
+        structure = root.Find("Structure");
+        furnitureRoot = root.Find("Furniture");
+        foreach (var r in rooms) r.furniture = furnitureRoot ? furnitureRoot.Find($"{FloorName(r.floor)} - {r.name}") : null;
+        var room = Find(1, PlayerRoomName);
+        if (!room.furniture) { Debug.LogWarning($"[Your room] Couldn't find 'First - {PlayerRoomName}' under NewHouse/Furniture."); return; }
+        var layout = house.GetComponent<HouseLayout>();
+
+        // Work at plan size, like the builder does, then put the house scale back.
+        Vector3 houseScale = root.localScale;
+        root.localScale = Vector3.one;
+        Physics.SyncTransforms();
+        var oldLights = new HashSet<Light>(room.furniture.GetComponentsInChildren<Light>(true));
+        GameObject desk = null;
+        try
+        {
+            ClearRoomKeepingWindows(room);
+            ClearancesFromLayout(room, layout);
+            desk = GamingRoom(room);
+            MoodLighting(room);
+            if (layout) UpdateMapFurniture(layout, room);
+        }
+        finally
+        {
+            root.localScale = houseScale;
+            Physics.SyncTransforms();
+        }
+        foreach (var l in room.furniture.GetComponentsInChildren<Light>(true))
+            if (!oldLights.Contains(l)) l.range *= houseScale.x;
+
+        string homework = HouseTaskSetup.SetUpHomeworkDesk(desk);
+        HouseTaskSetup.PrepareCatForHouse();
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+
+        string message = $"Your room is now a gaming room: {placed} pieces.\n{homework}";
+        if (skipped > 0) message += $"\n{skipped} pieces didn't fit (see the Console).";
+        if (missing.Count > 0) message += "\nMissing prefabs: " + string.Join(", ", missing.Distinct());
+        message += "\n\nThe old furniture is hidden under 'Old furniture (backup)' in the room. The scene is saved.";
+        Debug.Log("[Your room] " + message);
+        Selection.activeObject = room.furniture.gameObject;
+    }
+
+    /// <summary>Old furniture goes into a hidden backup (first run) or away (later runs). Curtains and blinds stay.</summary>
+    static void ClearRoomKeepingWindows(Room room)
+    {
+        var backup = room.furniture.Find("Old furniture (backup)");
+        bool firstTime = !backup;
+        if (firstTime)
+        {
+            backup = new GameObject("Old furniture (backup)").transform;
+            backup.SetParent(room.furniture, false);
+        }
+        foreach (var child in room.furniture.Cast<Transform>().ToList())
+        {
+            if (child == backup) continue;
+            if (WindowDressingNames.Contains(child.name))
+            {
+                if (child.name.StartsWith("Curtains"))
+                {
+                    var b = Bounds(child.gameObject);
+                    footprints.Add((room.floor, new Rect(b.min.x, b.min.z, b.size.x, b.size.z), child.gameObject));
+                }
+                continue;
+            }
+            if (firstTime) child.SetParent(backup, true);
+            else Object.DestroyImmediate(child.gameObject);
+        }
+        backup.gameObject.SetActive(false);
+        // The old desk's homework (and anything you could pick up) must not count any more.
+        foreach (var t in backup.GetComponentsInChildren<TaskBase>(true)) Object.DestroyImmediate(t);
+        foreach (var c in backup.GetComponentsInChildren<Carryable>(true)) Object.DestroyImmediate(c);
+    }
+
+    /// <summary>Doors and windows of the room from the saved floor plan: keep the doorways walkable and the glass clear.</summary>
+    static void ClearancesFromLayout(Room room, HouseLayout layout)
+    {
+        if (!layout) return;
+        foreach (var w in layout.walls)
+        {
+            if (w.floor != room.floor || (w.type != HouseLayout.WallType.Door && w.type != HouseLayout.WallType.Window)) continue;
+            bool alongX = Mathf.Approximately(w.a.y, w.b.y);
+            int line = Mathf.RoundToInt(alongX ? w.a.y : w.a.x);
+            int start = Mathf.RoundToInt(alongX ? Mathf.Min(w.a.x, w.b.x) : Mathf.Min(w.a.y, w.b.y));
+            bool onEdge = alongX
+                ? (line == room.z0 || line == room.z1) && start >= room.x0 && start + 2 <= room.x1
+                : (line == room.x0 || line == room.x1) && start >= room.z0 && start + 2 <= room.z1;
+            if (!onEdge) continue;
+            var s = new Segment { floor = room.floor, alongX = alongX, line = line, start = start };
+            if (w.type == HouseLayout.WallType.Door) KeepClear(room.floor, s, 1.2f, 1.0f);
+            else KeepWindowClear(room, s, null);
+        }
+    }
+
+    /// <summary>
+    /// The player's room (4 x 6 m; door in from the landing on the west, bathroom door in the north-east corner,
+    /// windows south and east). Battle-station in the south-west corner, console corner south-east,
+    /// bed and collectibles along the north, LED strip round the ceiling. Returns the homework desk.
+    /// </summary>
+    static GameObject GamingRoom(Room room)
+    {
+        const int f = 1;
+        const string R = PlayerRoomName;
+
+        // Walls a deep gamer indigo (only this room uses this paint).
+        Mat("Wall - Slate Blue", new Color(0.24f, 0.25f, 0.4f), 0.06f);
+
+        // --- Battle-station: big desk against the south wall, in the corner; you sit facing the wall.
+        var desk = Wall(f, R, "Desk Mechanical 2|Desk Mechanical 1|Desk Modern 2|Desk Modern", Side.S, 0f);
+        if (desk)
+        {
+            var main = On(desk, "Monitor 4 Curved|Monitor 3", 0.42f, 0.22f);
+            On(desk, "Monitor 2|Monitor 1", 0.93f, 0.25f, -28f);
+            if (main) On(main, "Web Cam 1|Web Cam 2", 0.5f, 0.5f);
+            On(desk, "PC Mouse Pad", 0.55f, 0.68f);
+            On(desk, "PC Keyboard 3|PC Keyboard 1", 0.42f, 0.66f);
+            On(desk, "PC Mouse 1|PC Mouse 2", 0.7f, 0.68f);
+            On(desk, "Headset 2|Headset 1", 0.04f, 0.45f, 20f);
+            On(desk, "Mic", 0.14f, 0.3f, 15f);
+            On(desk, "Soda Alt 1|Soda 1", 0.97f, 0.85f);
+            Seat(desk, "Gaming Chair 3|Gaming Chair 1|Gaming Chair 2");
+            var shelf = Above(desk, "Wall Shelf 5|Wall Shelf 4|Wall Shelf 2", 0.55f);
+            if (shelf)
+            {
+                On(shelf, "Small Expositor 1|Small Expositor 2", 0.2f, 0.5f);
+                On(shelf, "Game Case", 0.5f, 0.5f);
+                On(shelf, "Small Expositor 5|Small Expositor 3", 0.8f, 0.5f);
+            }
+            Underglow(desk, Glow("Neon Cyan", new Color(0.2f, 0.9f, 1f), 2.5f));
+        }
+        Wall(f, R, "PC Case 7|PC Case 4|PC Case 1", Side.S, 0.42f, snug: true); // the tower, RGB side out
+        Wall(f, R, "Poster 3|Poster 1", Side.W, 0.12f, 1.45f);
+
+        // --- Console corner: TV on the east wall, console on a low cabinet, bean bags.
+        Wall(f, R, "TV 3 Curved Mounted|TV 4 Mounted|TV 5 Mounted", Side.E, 0.18f, 1.25f);
+        var cabinet = Wall(f, R, "Mini Drawers|Shelves", Side.E, 0.18f);
+        if (cabinet)
+        {
+            On(cabinet, "Console PolyStation 5|Console Zbox 720", 0.3f, 0.5f, 0f);
+            On(cabinet, "Console PolyStation Controller|Console Zbox Controller", 0.75f, 0.6f, 25f);
+        }
+        Center(f, R, "Puff Variant|Puff", 0.62f, 0.13f, -90f);
+        Center(f, R, "Puff|Puff Variant", 0.62f, 0.3f, -90f);
+        Center(f, R, "Rug Tile|Rug A", 0.62f, 0.2f, 0f);
+        Wall(f, R, "Speaker 4|Speaker 3", Side.E, 0.02f);
+
+        // --- Bed along the north wall (head in the corner by the landing door wall), posters above.
+        var bed = Wall(f, R, "1P Bed 2|1P Bed", Side.N, 0f);
+        foreach (var stand in Beside(bed, "Bed Table|Mini Drawers", 1)) On(stand, "Small Lamp 3|Small Lamp 1", 0.5f, 0.5f);
+        Above(bed, "Poster 1|Poster 2", 0.4f);
+        Wall(f, R, "Wall Light 2|Wall Light 1", Side.W, 0.85f, 1.7f);
+
+        // --- Collectibles and a tube light by the bathroom door wall.
+        Wall(f, R, "Glass Expositor x1|Glass Expositor x1 2|Small Expositor 3", Side.N, 0.55f);
+        Wall(f, R, "Tube Lamp|Ring Lamp", Side.E, 0.62f);
+        Wall(f, R, "Poster 2|Poster 1", Side.E, 0.85f, 1.5f);
+        Center(f, R, "Rug A|Rug Tile", 0.4f, 0.55f, 0f);
+        return desk;
+    }
+
+    /// <summary>Purple LED strip round the ceiling, coloured accent lights, and a softer purple ceiling light.</summary>
+    static void MoodLighting(Room room)
+    {
+        var neon = Glow("Neon Purple", new Color(0.62f, 0.28f, 1f), 2.4f);
+        float y = room.Base + Storey - 0.16f, inset = 0.14f, t = 0.03f;
+        float w = room.x1 - room.x0 - inset * 2f, d = room.z1 - room.z0 - inset * 2f;
+        float cx = (room.x0 + room.x1) * 0.5f, cz = (room.z0 + room.z1) * 0.5f;
+        Box("LED strip S", room.furniture, new Vector3(cx, y, room.z0 + inset), new Vector3(w, t, t), neon, false);
+        Box("LED strip N", room.furniture, new Vector3(cx, y, room.z1 - inset), new Vector3(w, t, t), neon, false);
+        Box("LED strip W", room.furniture, new Vector3(room.x0 + inset, y, cz), new Vector3(t, t, d), neon, false);
+        Box("LED strip E", room.furniture, new Vector3(room.x1 - inset, y, cz), new Vector3(t, t, d), neon, false);
+
+        AccentLight(room, "Purple glow (desk)", new Vector3(room.x0 + 1.1f, room.Base + 2.3f, room.z0 + 0.9f), new Color(0.65f, 0.35f, 1f), 0.9f, 3.6f);
+        AccentLight(room, "Cyan glow (TV)", new Vector3(room.x1 - 0.8f, room.Base + 1.6f, room.z0 + 1.2f), new Color(0.3f, 0.85f, 1f), 0.7f, 3.2f);
+        AccentLight(room, "Pink glow (bed)", new Vector3(room.x0 + 1.2f, room.Base + 2.2f, room.z1 - 0.9f), new Color(1f, 0.4f, 0.75f), 0.5f, 3f);
+
+        // The room's ceiling light: a little dimmer and cooler, so the LEDs show.
+        var lights = root.Find("Lights");
+        if (!lights) return;
+        foreach (var l in lights.GetComponentsInChildren<Light>(true))
+            if (l.name == $"Light - {FloorName(room.floor)} {room.name}")
+            {
+                l.color = new Color(0.86f, 0.84f, 1f);
+                l.intensity = 0.75f;
+            }
+    }
+
+    static void AccentLight(Room room, string name, Vector3 at, Color color, float intensity, float range)
+    {
+        var light = new GameObject(name).AddComponent<Light>();
+        light.transform.SetParent(room.furniture, true);
+        light.transform.position = at;
+        light.type = LightType.Point;
+        light.color = color;
+        light.intensity = intensity;
+        light.range = range;
+        light.shadows = LightShadows.None;
+    }
+
+    /// <summary>A glowing strip under the front edge of a desk, plus a little light under it.</summary>
+    static void Underglow(GameObject desk, Material glow)
+    {
+        var b = Bounds(desk);
+        Vector3 fwd = desk.transform.forward;
+        fwd.y = 0f;
+        fwd = Mathf.Abs(fwd.x) > Mathf.Abs(fwd.z) ? new Vector3(Mathf.Sign(fwd.x), 0f, 0f) : new Vector3(0f, 0f, Mathf.Sign(fwd.z));
+        float reach = Vector3.Dot(b.extents, Abs(fwd)) - 0.04f;
+        float length = Vector3.Dot(b.size, new Vector3(Mathf.Abs(fwd.z), 0f, Mathf.Abs(fwd.x))) * 0.9f;
+        Vector3 at = new Vector3(b.center.x, b.max.y - 0.07f, b.center.z) + fwd * reach;
+        Vector3 size = fwd.x != 0f ? new Vector3(0.02f, 0.02f, length) : new Vector3(length, 0.02f, 0.02f);
+        Box("Desk underglow", desk.transform.parent, at, size, glow, false);
+        var light = new GameObject("Desk underglow light").AddComponent<Light>();
+        light.transform.SetParent(desk.transform.parent, true);
+        light.transform.position = new Vector3(b.center.x, b.min.y + 0.35f, b.center.z) + fwd * (reach - 0.2f);
+        light.type = LightType.Point;
+        light.color = new Color(0.25f, 0.85f, 1f);
+        light.intensity = 1.1f;
+        light.range = 1.6f;
+        light.shadows = LightShadows.None;
+    }
+
+    static Material Glow(string name, Color color, float strength)
+    {
+        var m = Mat(name, color, 0.3f);
+        m.EnableKeyword("_EMISSION");
+        m.SetColor("_EmissionColor", color * strength);
+        m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+        EditorUtility.SetDirty(m);
+        return m;
+    }
+
+    /// <summary>The minimap draws furniture from the saved layout: swap this room's old pieces for the new ones.</summary>
+    static void UpdateMapFurniture(HouseLayout layout, Room room)
+    {
+        var area = new Rect(room.x0, room.z0, room.x1 - room.x0, room.z1 - room.z0);
+        layout.furniture.RemoveAll(fi => fi.floor == room.floor && area.Contains(fi.rect.center));
+        foreach (var (f, rect, owner) in footprints)
+        {
+            if (f != room.floor || !owner || !area.Contains(rect.center) || WindowDressingNames.Contains(owner.name)) continue;
+            layout.furniture.Add(new HouseLayout.FurnitureInfo { floor = f, rect = rect, height = Bounds(owner).size.y });
+        }
+        EditorUtility.SetDirty(layout);
     }
 
     // ---- placement with clearance checks
@@ -909,9 +1405,28 @@ public static class HouseBuilder
     static Vector3 Inward(Side side) => side == Side.S ? Vector3.forward : side == Side.N ? Vector3.back : side == Side.W ? Vector3.right : Vector3.left;
 
     /// <summary>Against a wall, facing into the room. Slides along the wall to the nearest free spot; tries the alternatives in "A|B" if A doesn't fit.</summary>
-    static GameObject Wall(int f, string roomName, string prefabs, Side side, float t, float y = 0f, bool snug = false, float gap = 0.03f)
+    static GameObject Wall(int f, string roomName, string prefabs, Side side, float t, float y = 0f, bool snug = false, float gap = 0.03f, bool quiet = false)
     {
         var room = Find(f, roomName);
+        foreach (var s in SidesFrom(side))
+        {
+            var go = WallOn(room, prefabs, s, s == side ? t : 0.5f, y, snug, gap);
+            if (go) return go;
+        }
+        return quiet ? null : Skipped(prefabs, roomName);
+    }
+
+    static IEnumerable<Side> SidesFrom(Side first)
+    {
+        yield return first;
+        Side opposite = first == Side.S ? Side.N : first == Side.N ? Side.S : first == Side.W ? Side.E : Side.W;
+        yield return opposite;
+        foreach (Side s in new[] { Side.N, Side.E, Side.S, Side.W })
+            if (s != first && s != opposite) yield return s;
+    }
+
+    static GameObject WallOn(Room room, string prefabs, Side side, float t, float y, bool snug, float gap)
+    {
         foreach (var prefab in prefabs.Split('|'))
         {
             var go = Spawn(prefab, room.furniture);
@@ -941,7 +1456,7 @@ public static class HouseBuilder
             }
             Object.DestroyImmediate(go);
         }
-        return Skipped(prefabs, roomName);
+        return null;
     }
 
     /// <summary>Free-standing, at (u, v) of the room. Nudges around if that spot is taken.</summary>
@@ -954,7 +1469,7 @@ public static class HouseBuilder
             var go = Spawn(prefab, room.furniture);
             if (!go) continue;
             go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
-            if (Place(room, go, desired, 0.15f)) return go;
+            if (Place(room, go, desired, 0.3f)) return go;
             Object.DestroyImmediate(go);
         }
         return Skipped(prefabs, roomName);
@@ -1129,7 +1644,7 @@ public static class HouseBuilder
         if (rect.xMin < room.x0 + 0.07f || rect.xMax > room.x1 - 0.07f || rect.yMin < room.z0 + 0.07f || rect.yMax > room.z1 - 0.07f) return false;
         if (b.size.y < 0.06f) return true; // rugs never block a path
         bool high = b.min.y > room.Base + 2.3f;
-        bool tall = b.max.y - room.Base > 1.05f;
+        bool tall = b.max.y - room.Base > 1.25f;
         if ((mounted || tall) && !high)
             foreach (var (f, zone) in windowZones)
                 if (f == room.floor && rect.Overlaps(zone)) return false;
@@ -1145,6 +1660,7 @@ public static class HouseBuilder
     static void Commit(Room room, GameObject go, bool mounted)
     {
         placed++;
+        if (mounted) { wallArt.TryGetValue(room, out int n); wallArt[room] = n + 1; }
         var b = Bounds(go);
         if (!mounted && b.size.y >= 0.06f) footprints.Add((room.floor, new Rect(b.min.x, b.min.z, b.size.x, b.size.z), go));
         if (!go.GetComponentsInChildren<Collider>().Any(c => !c.isTrigger)) FitBox(go);
@@ -1219,7 +1735,7 @@ public static class HouseBuilder
     }
 
     /// <summary>A big projector screen on a wall (screen sits a little proud of its border - no flicker).</summary>
-    static void CinemaScreen(int f, string roomName, Side side, float width, float height, float bottom)
+    static GameObject CinemaScreen(int f, string roomName, Side side, float width, float height, float bottom)
     {
         var room = Find(f, roomName);
         var parent = new GameObject("Projector Screen").transform;
@@ -1233,6 +1749,7 @@ public static class HouseBuilder
         Box("Screen border", parent, wallFace + inward * 0.015f, size(width + 0.14f, height + 0.14f, 0.03f), Mat("Screen Border", new Color(0.08f, 0.08f, 0.09f), 0.3f), false);
         Box("Screen", parent, wallFace + inward * 0.035f, size(width, height, 0.01f), Mat("Screen White", new Color(0.96f, 0.96f, 0.98f), 0.05f), false);
         placed++;
+        return parent.gameObject;
     }
 
     /// <summary>Warm flickerless glow in front of a fireplace.</summary>
@@ -1433,7 +1950,7 @@ public static class HouseBuilder
         float w = 1.4f;
         if (frame) { var b = Bounds(frame); w = s.alongX ? b.size.x : b.size.z; }
         w += 0.7f; // the curtains either side
-        const float depth = 0.6f;
+        const float depth = 0.45f;
         Rect rect = side switch
         {
             Side.S => new Rect(c.x - w * 0.5f, s.line, w, depth),
@@ -1453,6 +1970,14 @@ public static class HouseBuilder
         layout.scale = HouseScale;
         foreach (var r in rooms)
             layout.rooms.Add(new HouseLayout.RoomInfo { name = r.name, floor = r.floor, rect = new Rect(r.x0, r.z0, r.x1 - r.x0, r.z1 - r.z0), kind = r.kind.ToString() });
+        layout.walls.AddRange(mapWalls);
+        // Furniture footprints for the map (not the things you carry around, and not curtains).
+        foreach (var (f, rect, owner) in footprints)
+        {
+            if (!owner || owner == taskObjects.clothes || Props.Contains(owner.name) || FitToWindow.Contains(owner.name)) continue;
+            if (rect.width < 0.15f || rect.height < 0.15f) continue;
+            layout.furniture.Add(new HouseLayout.FurnitureInfo { floor = f, rect = rect, height = Bounds(owner).size.y });
+        }
         new GameObject("Minimap").AddComponent<MiniMap>();
     }
 
@@ -1666,11 +2191,18 @@ public static class HouseBuilder
 
     static GameObject Spawn(string prefab, Transform parent)
     {
-        if (ExtraModels.ContainsKey(prefab)) return SpawnModel(prefab, parent);
-        var asset = FindPrefab(prefab);
-        if (!asset) { missing.Add(prefab); return null; }
-        var go = (GameObject)PrefabUtility.InstantiatePrefab(asset, parent.gameObject.scene);
-        go.transform.SetParent(parent, false);
+        GameObject go;
+        if (ExtraModels.ContainsKey(prefab)) go = SpawnModel(prefab, parent);
+        else if (Props.Contains(prefab)) go = Prop(prefab, parent);
+        else
+        {
+            var asset = FindPrefab(prefab);
+            if (!asset) { missing.Add(prefab); return null; }
+            go = (GameObject)PrefabUtility.InstantiatePrefab(asset, parent.gameObject.scene);
+            go.transform.SetParent(parent, false);
+        }
+        if (go && furnitureRoot && parent.IsChildOf(furnitureRoot) && !FitToWindow.Contains(prefab))
+            go.transform.localScale *= FurnitureScale;
         return go;
     }
 

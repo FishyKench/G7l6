@@ -10,6 +10,7 @@ using UnityEngine;
 ///   add-cat.request   - put the cat in the house scene
 ///   cat-size.request  - scale the cat (file contains the size, e.g. 1.5)
 ///   fix-stairs.request - smooth ramp over the stairs + re-bake the cat's walk map
+///   player-room.request - redo just your bedroom as the gaming room (the rest of NewHouse stays)
 /// </summary>
 [InitializeOnLoad]
 static class PendingSetup
@@ -19,6 +20,7 @@ static class PendingSetup
     const string FixStairsRequest = "Library/G7l6/fix-stairs.request";
     const string CatOverhaulRequest = "Library/G7l6/cat-overhaul.request";
     const string BuildHouseRequest = "Library/G7l6/build-house.request";
+    const string PlayerRoomRequest = "Library/G7l6/player-room.request";
     const double GiveUpAfterSeconds = 120;
 
     static double startedAt;
@@ -27,7 +29,7 @@ static class PendingSetup
     static PendingSetup()
     {
         if (!File.Exists(AddCatRequest) && !File.Exists(CatSizeRequest) && !File.Exists(FixStairsRequest) && !File.Exists(CatOverhaulRequest)
-            && !File.Exists(BuildHouseRequest)) return;
+            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest)) return;
         startedAt = EditorApplication.timeSinceStartup;
         EditorApplication.update += Poll;
     }
@@ -43,7 +45,8 @@ static class PendingSetup
         bool stairs = File.Exists(FixStairsRequest);
         bool overhaul = File.Exists(CatOverhaulRequest);
         bool buildHouse = File.Exists(BuildHouseRequest);
-        if (!addCat && !resize && !stairs && !overhaul && !buildHouse) { EditorApplication.update -= Poll; return; }
+        bool playerRoom = File.Exists(PlayerRoomRequest);
+        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom) { EditorApplication.update -= Poll; return; }
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
 
         // Wait for the cat model to finish importing.
@@ -85,6 +88,11 @@ static class PendingSetup
         {
             File.Delete(BuildHouseRequest);
             HouseBuilder.Build();
+        }
+        if (playerRoom)
+        {
+            File.Delete(PlayerRoomRequest);
+            HouseBuilder.RedoPlayerRoom();
         }
     }
 }

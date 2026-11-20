@@ -3,7 +3,8 @@ using UnityEngine;
 
 /// <summary>
 /// The house's floor plan (written by G7l6 > Build New House): every room's name, floor and
-/// outline. Used by the minimap to draw the house and tell you which room you're in.
+/// outline, plus the walls (doors, windows) and furniture footprints. Used by the minimap to draw the
+/// house and tell you which room you're in.
 /// </summary>
 public class HouseLayout : MonoBehaviour
 {
@@ -17,10 +18,32 @@ public class HouseLayout : MonoBehaviour
         public string kind;
     }
 
+    public enum WallType { Wall, Door, Window, Railing }
+
+    [System.Serializable]
+    public class WallInfo
+    {
+        public int floor;
+        [Tooltip("Ends of the wall in plan metres (x, z).")]
+        public Vector2 a, b;
+        public WallType type;
+    }
+
+    [System.Serializable]
+    public class FurnitureInfo
+    {
+        public int floor;
+        [Tooltip("Footprint in plan metres.")]
+        public Rect rect;
+        public float height;
+    }
+
     public float storeyHeight = 3f;
     [Tooltip("The house was built this much bigger than the plan.")]
     public float scale = 1f;
     public List<RoomInfo> rooms = new List<RoomInfo>();
+    public List<WallInfo> walls = new List<WallInfo>();
+    public List<FurnitureInfo> furniture = new List<FurnitureInfo>();
 
     static HouseLayout instance;
     public static HouseLayout Instance
@@ -49,6 +72,13 @@ public class HouseLayout : MonoBehaviour
     public Vector2 ToPlan(Vector3 world)
     {
         Vector3 local = transform.InverseTransformPoint(world);
+        return new Vector2(local.x, local.z);
+    }
+
+    /// <summary>A world direction in plan metres (flat).</summary>
+    public Vector2 ToPlanDirection(Vector3 world)
+    {
+        Vector3 local = transform.InverseTransformDirection(world);
         return new Vector2(local.x, local.z);
     }
 

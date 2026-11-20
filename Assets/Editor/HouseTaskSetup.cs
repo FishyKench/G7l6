@@ -73,6 +73,40 @@ public static class HouseTaskSetup
         EditorUtility.DisplayDialog("House tasks set up", message, "OK");
     }
 
+    // ------------------------------------------------------------------ new house (called by the house builder)
+
+    /// <summary>Everything the house builder placed that a task lives on. Missing ones are reported, not fatal.</summary>
+    internal class HouseTaskObjects
+    {
+        public GameObject desk, remote, oven, washer, clothes, leakSink;
+        public string clothesRoom;
+        public readonly List<(GameObject tv, string label, Renderer screen)> tvs = new List<(GameObject, string, Renderer)>();
+    }
+
+    /// <summary>Wires every task onto the objects the builder placed. Returns a short report for the build dialog.</summary>
+    internal static string SetUpTasksInNewHouse(HouseTaskObjects o)
+    {
+        done.Clear(); problems.Clear(); created.Clear();
+        EnsureFolder(TaskMaterials);
+        Physics.SyncTransforms();
+
+        SetUpManagers();
+        SetUpPlayer();
+        SetUpHomework(o.desk);
+        SetUpRemote(o.remote);
+        foreach (var (tv, label, screen) in o.tvs) SetUpTv(tv, label, screen);
+        if (o.tvs.Count == 0) problems.Add("No TV was placed, so there's no TV task");
+        SetUpTools();
+        SetUpOven(o.oven);
+        SetUpLaundry(o.washer, o.clothes, o.clothesRoom);
+        SetUpCeilingLeak(o.leakSink);
+
+        string report = "Tasks:\n- " + string.Join("\n- ", done.Where(d => !d.Contains("HUD") && !d.Contains("Manager")));
+        if (problems.Count > 0) report += "\n\nTasks that need a look:\n- " + string.Join("\n- ", problems);
+        Debug.Log("[Build New House] " + report);
+        return report;
+    }
+
     // ------------------------------------------------------------------ managers, player, old UI
 
     static void SetUpManagers()
@@ -602,10 +636,19 @@ public static class HouseTaskSetup
 
     // ------------------------------------------------------------------ tasks
 
-    static void SetUpHomework()
+    /// <summary>Used when your room is redone: homework moves to the new desk.</summary>
+    internal static string SetUpHomeworkDesk(GameObject desk)
     {
-        var desk = FindActive("Desk Mechanical 1");
-        if (!desk) { problems.Add("Couldn't find 'Desk Mechanical 1' for the homework task"); return; }
+        done.Clear(); problems.Clear(); created.Clear();
+        if (!desk) return "No desk could be placed, so homework has nowhere to go (see the Console).";
+        SetUpHomework(desk);
+        return problems.Count > 0 ? string.Join(System.Environment.NewLine, problems) : $"Homework is at the new desk ('{desk.name}').";
+    }
+
+    static void SetUpHomework(GameObject desk = null)
+    {
+        if (!desk) desk = FindActive("Desk Mechanical 1");
+        if (!desk) { problems.Add("Couldn't find the homework desk ('Desk Mechanical 1')"); return; }
 
         var task = Ensure<TypingTask>(desk);
         Undo.RecordObject(task, "Configure homework");
@@ -620,23 +663,28 @@ public static class HouseTaskSetup
 
         EnsureCollider(desk);
         EnsureOutline(desk);
-        done.Add("Homework (typing) on the office desk");
+        done.Add($"Homework (typing) at '{desk.name}' in {RoomOf(desk)}");
     }
 
-    static void SetUpRemote()
+    static void SetUpRemote(GameObject remote = null)
     {
-        var remote = FindActive("Controller (TV)");
+        if (!remote) remote = FindActive("Controller (TV)");
         if (!remote) { problems.Add("Couldn't find the TV remote 'Controller (TV)'"); return; }
 
         RemoveMissingScripts(remote); // the old TvRemote script
         MakeCarryable(remote, ItemType.Remote, "TV remote", 0.25f);
-        done.Add("TV remote can be picked up (living room)");
+        done.Add($"TV remote can be picked up ({RoomOf(remote)})");
     }
 
     static void SetUpTv(string objectName, string label)
     {
         var tv = FindActive(objectName);
         if (!tv) { problems.Add($"Couldn't find TV '{objectName}'"); return; }
+        SetUpTv(tv, label, null);
+    }
+
+    static void SetUpTv(GameObject tv, string label, Renderer knownScreen)
+    {
 
         var staticMat = AssetDatabase.LoadAssetAtPath<Material>(StaticMaterialPath);
         var offMat = AssetDatabase.LoadAssetAtPath<Material>(ScreenOffMaterialPath);
@@ -653,7 +701,9 @@ public static class HouseTaskSetup
         task.staticMaterial = staticMat;
         task.offMaterial = offMat;
 
-        if (FindScreenSlot(tv, staticMat, offMat, out Renderer screen, out int slot))
+        Renderer screen = knownScreen;
+        int slot = 0;
+        if (screen || FindScreenSlot(tv, staticMat, offMat, out screen, out slot))
         {
             task.screenRenderer = screen;
             task.screenMaterialIndex = slot;
@@ -686,7 +736,7 @@ public static class HouseTaskSetup
     static bool FindScreenSlot(GameObject tv, Material staticMat, Material offMat, out Renderer renderer, out int slot)
     {
         // First: a slot already using the static / screen-off material. Then: anything called "screen".
-        for (int pass = 0; pass < 2; pass++)
+        for (int pass = 0; pass < 3; pass++)
         {
             foreach (var r in tv.GetComponentsInChildren<Renderer>(true))
             {
@@ -695,9 +745,10 @@ public static class HouseTaskSetup
                 {
                     var m = mats[i];
                     if (!m) continue;
-                    bool match = pass == 0
-                        ? (m == staticMat || m == offMat)
-                        : m.name.ToLowerInvariant().Contains("screen") || r.name.ToLowerInvariant().Contains("screen");
+                    string mn = m.name.ToLowerInvariant();
+                    bool match = pass == 0 ? (m == staticMat || m == offMat)
+                        : pass == 1 ? mn.Contains("screen") || r.name.ToLowerInvariant().Contains("screen")
+                        : !mn.Contains("palette");
                     if (match) { renderer = r; slot = i; return true; }
                 }
             }
@@ -706,9 +757,9 @@ public static class HouseTaskSetup
         return false;
     }
 
-    static void SetUpOven()
+    static void SetUpOven(GameObject oven = null)
     {
-        var oven = FindActive("Oven");
+        if (!oven) oven = FindActive("Oven");
         if (!oven) { problems.Add("Couldn't find the 'Oven'"); return; }
 
         EnsureCollider(oven);
@@ -864,9 +915,9 @@ public static class HouseTaskSetup
         Dirty(renderer);
     }
 
-    static void SetUpLaundry()
+    static void SetUpLaundry(GameObject washer = null, GameObject clothesGo = null, string clothesRoom = null)
     {
-        var washer = FindActive("Washing Machine");
+        if (!washer) washer = FindActive("Washing Machine");
         if (!washer) { problems.Add("Couldn't find the 'Washing Machine'"); return; }
 
         EnsureCollider(washer);
@@ -875,7 +926,7 @@ public static class HouseTaskSetup
         var flood = SetUpFlood(washer, bounds);
 
         Carryable clothes = null;
-        var clothesGo = FindActive("clothes_001");
+        if (!clothesGo) clothesGo = FindActive("clothes_001");
         if (clothesGo) clothes = MakeCarryable(clothesGo, ItemType.DirtyClothes, "dirty clothes", 0.5f);
         else problems.Add("Couldn't find 'clothes_001' (the dirty clothes pile)");
 
@@ -889,6 +940,7 @@ public static class HouseTaskSetup
         task.washTime = 35f;
         task.overflowAfter = 25f;
         task.dirtyClothes = clothes;
+        if (!string.IsNullOrEmpty(clothesRoom)) task.clothesLocation = clothesRoom;
         task.flood = flood;
         task.shakeTarget = washer.transform;
 
@@ -906,7 +958,7 @@ public static class HouseTaskSetup
         task.runningLight = l;
         Dirty(task);
 
-        done.Add("Laundry: clothes in the bedroom -> washer (35s), overflows 25s after it's done");
+        done.Add($"Laundry: clothes {(string.IsNullOrEmpty(clothesRoom) ? "upstairs" : clothesRoom)} -> washer in {RoomOf(washer)} (35s), overflows 25s after it's done");
     }
 
     static FloodHazard SetUpFlood(GameObject washer, Bounds washerBounds) =>
@@ -972,9 +1024,9 @@ public static class HouseTaskSetup
 
     // ------------------------------------------------------------------ ceiling leak
 
-    static void SetUpCeilingLeak()
+    static void SetUpCeilingLeak(GameObject sink = null)
     {
-        var tap = SetUpUpstairsSink();
+        var tap = SetUpUpstairsSink(sink);
         if (!tap) return;
 
         // The leak object. Its drip/puddle are moved under the tap when the leak starts.
@@ -1037,13 +1089,13 @@ public static class HouseTaskSetup
         Undo.RecordObject(visual.gameObject, "Hide leak");
         visual.gameObject.SetActive(false);
 
-        done.Add("Ceiling leak: tap upstairs -> drips through the ceiling right below it (bucket + turn off tap)");
+        done.Add($"Ceiling leak: the tap in {RoomOf(tap.gameObject)} runs -> drips through the ceiling right below it (bucket + turn off tap)");
     }
 
     /// <summary>The house has no upstairs bathroom, so copy the ground-floor bathroom sink into the master bedroom.</summary>
-    static LeakTap SetUpUpstairsSink()
+    static LeakTap SetUpUpstairsSink(GameObject sink = null)
     {
-        var sink = Object.FindObjectOfType<LeakTap>()?.gameObject ?? FindActive("Upstairs Sink");
+        if (!sink) sink = Object.FindObjectOfType<LeakTap>()?.gameObject ?? FindActive("Upstairs Sink");
         if (!sink)
         {
             var room = FindActive("MasterBedroom") ?? FindActive("bedroom");
@@ -1225,7 +1277,8 @@ public static class HouseTaskSetup
             var basket = FindChild(storage.transform, "Plastic Basket");
             anchor = basket ? WorldBounds(basket.gameObject).center : storage.transform.position;
         }
-        else problems.Add("No 'StorageRoom' found - the extinguisher and mop were put at the scene origin");
+        else if (new[] { "extinguisher", "mop", "bucket" }.Any(n => !FindNameContains(n)))
+            problems.Add("No 'StorageRoom' found - the extinguisher and mop were put at the scene origin");
 
         SetUpTool(ItemType.Extinguisher, "extinguisher", "fire extinguisher", "Fire Extinguisher (placeholder)", parent, anchor + new Vector3(0f, 0f, 0.7f));
         SetUpTool(ItemType.Mop, "mop", "mop", "Mop (placeholder)", parent, anchor + new Vector3(0f, 0f, -0.7f));
@@ -1243,7 +1296,7 @@ public static class HouseTaskSetup
         if (existing)
         {
             MakeCarryable(existing, type, displayName, 0.45f);
-            done.Add($"{displayName}: using '{existing.name}'");
+            done.Add($"{displayName}: '{existing.name}' in {RoomOf(existing)}");
             return;
         }
 
@@ -1307,6 +1360,18 @@ public static class HouseTaskSetup
         EnsureCollider(go);
         EnsureOutline(go);
         return c;
+    }
+
+    /// <summary>The room an object stands in: its furniture group's name, e.g. "Ground - Kitchen" -> "the kitchen".</summary>
+    static string RoomOf(GameObject go)
+    {
+        for (var p = go ? go.transform.parent : null; p; p = p.parent)
+        {
+            int dash = p.name.IndexOf(" - ");
+            if (dash > 0 && p.parent && (p.parent.name == "Furniture" || p.parent.name == "Furniature"))
+                return "the " + p.name.Substring(dash + 3).ToLowerInvariant();
+        }
+        return go && go.transform.parent ? $"'{go.transform.parent.name}'" : "the house";
     }
 
     static T Ensure<T>(GameObject go) where T : Component

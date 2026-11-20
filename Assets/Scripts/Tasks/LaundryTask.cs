@@ -12,6 +12,8 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
     [Header("Laundry")]
     [Tooltip("The dirty clothes pile. Hidden until the task starts.")]
     public Carryable dirtyClothes;
+    [Tooltip("Where the clothes are, for the HUD: \"Dirty clothes are ...\" (e.g. \"upstairs\", \"in the kid's room\").")]
+    public string clothesLocation = "upstairs";
     public float washTime = 35f;
     [Tooltip("Seconds after washing finishes before the machine overflows.")]
     public float overflowAfter = 25f;
@@ -55,7 +57,7 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
             {
                 case Phase.Washing: return $"Washing... {Seconds(washTime - washTimer)}";
                 case Phase.Done: return "Done! Take it out before it overflows";
-                default: return PlayerHolds(ItemType.DirtyClothes) ? "Take the clothes to the washer" : "Dirty clothes are upstairs";
+                default: return PlayerHolds(ItemType.DirtyClothes) ? "Take the clothes to the washer" : "Dirty clothes are " + clothesLocation;
             }
         }
     }
