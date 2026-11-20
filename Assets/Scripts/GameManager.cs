@@ -1,57 +1,105 @@
-using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
+using UnityEngine;
 
+/// <summary>
+/// Keeps the list of tasks in the scene and starts random ones over time.
+/// Hazards (fire, flood) and anything spawned later (e.g. by the cat) call StartTask() directly,
+/// which ignores the random-task limit.
+/// </summary>
 public class GameManager : MonoBehaviour
 {
-    public TaskUIManager taskUIManager;
-    private List<TaskBase> allTasks;
-    public Queue<TaskBase> taskQueue = new Queue<TaskBase>();
+    public static GameManager Instance { get; private set; }
+
+    [Header("Random tasks")]
+    [Tooltip("Max random tasks active at once. Main tasks and hazards don't count.")]
     public int maxActiveTasks = 3;
+    public float firstTaskDelay = 8f;
+    [Tooltip("Random wait (seconds) between new tasks.")]
+    public Vector2 timeBetweenTasks = new Vector2(15f, 30f);
+
+    readonly List<TaskBase> tasks = new List<TaskBase>();
+    readonly List<TaskBase> hudTasks = new List<TaskBase>();
+
+    public IReadOnlyList<TaskBase> Tasks => tasks;
+
+    void Awake()
+    {
+        Instance = this;
+        // Make sure the HUD and exhaustion exist even if the setup tool wasn't run.
+        if (!FindObjectOfType<GameHUD>()) new GameObject("HUD").AddComponent<GameHUD>();
+        if (!FindObjectOfType<ExhaustionManager>()) gameObject.AddComponent<ExhaustionManager>();
+    }
 
     void Start()
     {
-        allTasks = new List<TaskBase>(FindObjectsOfType<TaskBase>());
-        StartCoroutine(RandomTaskTrigger());
+        foreach (var task in FindObjectsOfType<TaskBase>(true))
+            Register(task);
+
+        foreach (var task in tasks)
+            if (task.isMainTask) task.Activate();
+
+        StartCoroutine(SpawnRandomTasks());
     }
 
-    IEnumerator RandomTaskTrigger()
+    public void Register(TaskBase task)
     {
+        if (task && !tasks.Contains(task)) tasks.Add(task);
+    }
+
+    /// <summary>Start a specific task right now (used by hazards, later by the cat).</summary>
+    public void StartTask(TaskBase task)
+    {
+        if (!task || task.IsActive) return;
+        Register(task);
+        task.Activate();
+        if (!task.isMainTask)
+            GameHUD.Toast("New: " + task.taskName, task is HazardTask ? GameHUD.Bad : GameHUD.Warn);
+    }
+
+    IEnumerator SpawnRandomTasks()
+    {
+        yield return new WaitForSeconds(firstTaskDelay);
         while (true)
         {
-            if (taskQueue.Count < maxActiveTasks)
-            {
-                yield return new WaitForSeconds(Random.Range(2f, 4f));
-                ActivateRandomTask();
-            }
-            else
-            {
-                yield return null;
-            }
+            if (ActiveRandomTaskCount() < maxActiveTasks)
+                TryStartRandomTask();
+            yield return new WaitForSeconds(Random.Range(timeBetweenTasks.x, timeBetweenTasks.y));
         }
     }
 
-    void ActivateRandomTask()
+    int ActiveRandomTaskCount()
     {
-        List<TaskBase> inactiveTasks = allTasks.FindAll(task => !task.isTaskActive);
-
-        if (inactiveTasks.Count > 0)
-        {
-            TaskBase newTask = inactiveTasks[Random.Range(0, inactiveTasks.Count)];
-            newTask.StartTask();
-            taskQueue.Enqueue(newTask);
-            taskUIManager.UpdateTaskSlots(taskQueue); 
-        }
+        int count = 0;
+        foreach (var t in tasks)
+            if (t.IsActive && t.canStartRandomly && !t.isMainTask) count++;
+        return count;
     }
 
-    public void CompleteTask(TaskBase task)
+    void TryStartRandomTask()
     {
-        if (taskQueue.Contains(task))
+        var pool = new List<TaskBase>();
+        foreach (var t in tasks)
+            if (t.canStartRandomly && !t.isMainTask && !t.IsActive && t.CanStartNow && Time.time >= t.AvailableAt)
+                pool.Add(t);
+
+        if (pool.Count > 0)
+            StartTask(pool[Random.Range(0, pool.Count)]);
+    }
+
+    /// <summary>Active tasks in HUD order: main tasks first, then hazards, then oldest first.</summary>
+    public List<TaskBase> GetHudTasks()
+    {
+        hudTasks.Clear();
+        foreach (var t in tasks)
+            if (t && t.IsActive) hudTasks.Add(t);
+
+        hudTasks.Sort((a, b) =>
         {
-            task.EndTask();
-            taskQueue = new Queue<TaskBase>(taskQueue.Where(t => t != task));
-            taskUIManager.UpdateTaskSlots(taskQueue); 
-        }
+            int ra = a.isMainTask ? 0 : a is HazardTask ? 1 : 2;
+            int rb = b.isMainTask ? 0 : b is HazardTask ? 1 : 2;
+            return ra != rb ? ra.CompareTo(rb) : a.ActivatedAt.CompareTo(b.ActivatedAt);
+        });
+        return hudTasks;
     }
 }

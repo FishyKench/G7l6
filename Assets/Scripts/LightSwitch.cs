@@ -2,16 +2,17 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class LightSwitch : MonoBehaviour,IInteractable
+public class LightSwitch : MonoBehaviour, IInteractable, IPromptProvider
 {
     [SerializeField] private bool usable = true;
     [SerializeField] private Light[] lights;
 
     private bool lightsOn = true;
 
+    public string Prompt => usable ? (lightsOn ? "Turn lights off" : "Turn lights on") : null;
+
     public void Interact()
     {
-        print("MAMA");
         if (usable && lightsOn)
         {
             foreach (var light in lights)

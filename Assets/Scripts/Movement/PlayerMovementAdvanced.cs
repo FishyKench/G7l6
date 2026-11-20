@@ -51,6 +51,11 @@ public class PlayerMovementAdvanced : MonoBehaviour
 
     public bool canMove;
 
+    [Tooltip("Set by ExhaustionManager: false while the player is exhausted.")]
+    public bool canSprint = true;
+    [Tooltip("Set by ExhaustionManager: slows every movement speed while exhausted.")]
+    public float speedMultiplier = 1f;
+
     public enum MovementState
     {
         walking,
@@ -132,17 +137,17 @@ public class PlayerMovementAdvanced : MonoBehaviour
         if (Input.GetKey(crouchKey))
         {
             state = MovementState.crouching;
-            moveSpeed = crouchSpeed;
+            moveSpeed = crouchSpeed * speedMultiplier;
         }
-        else if (grounded && Input.GetKey(sprintKey))
+        else if (grounded && canSprint && Input.GetKey(sprintKey))
         {
             state = MovementState.sprinting;
-            moveSpeed = sprintSpeed;
+            moveSpeed = sprintSpeed * speedMultiplier;
         }
         else if (grounded)
         {
             state = MovementState.walking;
-            moveSpeed = walkSpeed;
+            moveSpeed = walkSpeed * speedMultiplier;
         }
         else
         {

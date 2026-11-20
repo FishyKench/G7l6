@@ -6,7 +6,9 @@ public class MoveCamera : MonoBehaviour
 {
     public Transform cameraPosition;
 
-    private void Update()
+    // LateUpdate runs after the player has moved this frame, so the camera
+    // never lags one frame behind the body (that lag shows up as jitter).
+    private void LateUpdate()
     {
         transform.position = cameraPosition.position;
     }

@@ -1,51 +1,122 @@
 using UnityEngine;
 
+/// <summary>
+/// Base class for every task in the house (TV, oven, laundry, homework, hazards...).
+///
+/// Lifecycle:  inactive  --Activate()-->  active  --Complete() / Fail()-->  inactive (cooldown)
+///
+/// A task can run a deadline (a countdown shown in the HUD). When it reaches zero,
+/// OnDeadlineReached() is called; by default that fails the task. Tasks with several
+/// steps (oven, laundry) start new deadlines for each step with StartDeadline().
+/// </summary>
 public abstract class TaskBase : MonoBehaviour
 {
-    public string taskName;
-    public Sprite taskIcon;
-    public float taskTime = 10f;
-    public bool isTaskActive = false;
-    public float currentTime;
+    [Header("Task")]
+    public string taskName = "Task";
+    [Tooltip("Seconds the player has to start dealing with the task before it fails. 0 = never runs out.")]
+    public float timeLimit = 60f;
+    [Tooltip("Stress added when the task fails.")]
+    public float stressOnFail = 10f;
+    [Tooltip("Stress removed when the task is completed.")]
+    public float stressReliefOnComplete = 5f;
 
-    protected GameManager gameManager; 
+    [Header("Scheduling")]
+    [Tooltip("Main tasks (like homework) are active from the start and are never picked at random.")]
+    public bool isMainTask = false;
+    [Tooltip("Can the GameManager start this task at random?")]
+    public bool canStartRandomly = true;
+    [Tooltip("Seconds after the task ends before the GameManager may pick it again.")]
+    public float cooldown = 20f;
 
-    protected virtual void Start()
+    public bool IsActive { get; private set; }
+    public bool DeadlineRunning { get; private set; }
+    public float TimeLeft { get; private set; }
+    public float ActivatedAt { get; private set; }
+    public float AvailableAt { get; private set; }
+    /// <summary>How the task ended last time (true = completed, false = failed).</summary>
+    public bool LastSucceeded { get; private set; }
+
+    /// <summary>0..1, drawn as the progress bar in the HUD.</summary>
+    public virtual float Progress => 0f;
+    /// <summary>Short line under the task name in the HUD, e.g. "Cooking... 12s".</summary>
+    public virtual string Status => "";
+    /// <summary>Return false to stop the GameManager starting this task right now.</summary>
+    public virtual bool CanStartNow => true;
+
+    protected StressManager Stress => StressManager.Instance;
+
+    public void Activate()
     {
-        gameManager = FindObjectOfType<GameManager>();
-        currentTime = taskTime;
+        if (IsActive) return;
+        IsActive = true;
+        ActivatedAt = Time.time;
+        StartDeadline(timeLimit);
+        OnActivated();
     }
 
     protected virtual void Update()
     {
-        if (isTaskActive)
-        {
-            currentTime -= Time.deltaTime;
+        if (!IsActive) return;
 
-            if (currentTime <= 0)
+        if (DeadlineRunning)
+        {
+            TimeLeft -= Time.deltaTime;
+            if (TimeLeft <= 0f)
             {
-                TaskFailed();
-                gameManager.CompleteTask(this);
+                TimeLeft = 0f;
+                DeadlineRunning = false;
+                OnDeadlineReached();
+                if (!IsActive) return;
             }
         }
+
+        TaskUpdate();
     }
 
-    public virtual void StartTask()
+    /// <summary>Called every frame while the task is active.</summary>
+    protected virtual void TaskUpdate() { }
+
+    protected void StartDeadline(float seconds)
     {
-        isTaskActive = true;
-        currentTime = taskTime;
+        TimeLeft = seconds;
+        DeadlineRunning = seconds > 0f;
     }
 
-    public virtual void EndTask()
+    protected void StopDeadline() => DeadlineRunning = false;
+
+    protected virtual void OnDeadlineReached() => Fail(taskName + " ran out of time!");
+
+    public void Complete(string message = null)
     {
-        isTaskActive = false;
+        if (!IsActive) return;
+        LastSucceeded = true;
+        End();
+        if (Stress) Stress.RemoveStress(stressReliefOnComplete);
+        OnCompleted();
+        GameHUD.Toast(message ?? taskName + " done!", GameHUD.Good);
     }
 
-    
-    protected abstract void TaskFailed();
-
-    protected virtual void RewardPlayer()
+    public void Fail(string message = null)
     {
-        Debug.Log("Player rewarded for completing task.");
+        if (!IsActive) return;
+        LastSucceeded = false;
+        End();
+        if (Stress) Stress.AddStress(stressOnFail);
+        OnFailed();
+        GameHUD.Toast(message ?? taskName + " failed!", GameHUD.Bad);
     }
+
+    void End()
+    {
+        IsActive = false;
+        DeadlineRunning = false;
+        AvailableAt = Time.time + cooldown;
+    }
+
+    protected virtual void OnActivated() { }
+    protected virtual void OnCompleted() { }
+    protected virtual void OnFailed() { }
+
+    protected static string Seconds(float t) => Mathf.CeilToInt(Mathf.Max(0f, t)) + "s";
+    protected static bool PlayerHolds(ItemType type) => PlayerCarry.Instance && PlayerCarry.Instance.IsHolding(type);
 }
