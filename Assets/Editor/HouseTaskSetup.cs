@@ -299,9 +299,24 @@ public static class HouseTaskSetup
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     /// <summary>The cat can only jump onto things that have a collider. Give climbable furniture one if it has none.</summary>
-    static void MakeClimbableFurnitureSolid()
+    /// <summary>The house in the open scene: the new one if it's there, otherwise the old one.</summary>
+    static GameObject HouseRoot() => FindActive("NewHouse") ?? FindActive("HouseTryTwo");
+
+    /// <summary>Used by the house builder: solid furniture, cat linked to the house, fresh walk map.</summary>
+    internal static void PrepareCatForHouse()
     {
-        var house = FindActive("HouseTryTwo");
+        done.Clear(); problems.Clear(); created.Clear();
+        Physics.SyncTransforms();
+        MakeClimbableFurnitureSolid();
+        Physics.SyncTransforms();
+        LinkCatToHouse();
+        BakeWalkMap();
+        foreach (var p in problems) Debug.LogWarning("[Build New House] " + p);
+    }
+
+    internal static void MakeClimbableFurnitureSolid()
+    {
+        var house = HouseRoot();
         var furniture = house ? (FindChild(house.transform, "Furniature") ?? FindChild(house.transform, "Furniture")) : null;
         if (!furniture) { problems.Add("Couldn't find the 'Furniature' object"); return; }
 
@@ -453,16 +468,16 @@ public static class HouseTaskSetup
     }
 
     /// <summary>Tells the cat which objects are the house and the furniture (where it may and may not stand).</summary>
-    static void LinkCatToHouse()
+    internal static void LinkCatToHouse()
     {
         var brain = Object.FindObjectOfType<CatBrain>(true);
         if (!brain) return;
-        var house = FindActive("HouseTryTwo");
+        var house = HouseRoot();
         Undo.RecordObject(brain, "Link cat to house");
         if (house)
         {
             brain.house = house.transform;
-            brain.furniture = FindChild(house.transform, "Furniature");
+            brain.furniture = FindChild(house.transform, "Furniature") ?? FindChild(house.transform, "Furniture");
         }
         Dirty(brain);
     }
@@ -479,9 +494,9 @@ public static class HouseTaskSetup
         EditorUtility.DisplayDialog("Cat walk map", message + "\n\nSave the scene (Ctrl+S) to keep it.", "OK");
     }
 
-    static void BakeWalkMap()
+    internal static void BakeWalkMap()
     {
-        var house = FindActive("HouseTryTwo");
+        var house = HouseRoot();
         Bounds area = house ? WorldBounds(house) : new Bounds(Vector3.zero, new Vector3(80f, 30f, 80f));
         area.Expand(4f);
 

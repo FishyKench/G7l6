@@ -151,7 +151,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         items = FindObjectsOfType<Carryable>(true);
         if (!house)
         {
-            var h = GameObject.Find("HouseTryTwo");
+            var h = GameObject.Find("NewHouse") ?? GameObject.Find("HouseTryTwo");
             if (h) house = h.transform;
         }
         if (!furniture && house)

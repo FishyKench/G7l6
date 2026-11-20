@@ -7621,6 +7621,12 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: bbe20776896d0a34eb1b2d81fe11c0e7, type: 3}
+--- !u!1 &160866874 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 270082881127532208, guid: b6363fb4d1176924da5a92a5383f569f,
+    type: 3}
+  m_PrefabInstance: {fileID: 1278235154}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &162331971
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -50436,6 +50442,51 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 541f4d05e0104d94fa12adc21bc9e3e6, type: 3}
+--- !u!1 &646991536
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 646991538}
+  - component: {fileID: 646991537}
+  m_Layer: 10
+  m_Name: Stairs Ramp (walkable)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!65 &646991537
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 646991536}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Size: {x: 2.8000011, y: 0.4, z: 7.311455}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!4 &646991538
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 646991536}
+  m_LocalRotation: {x: -0.26631057, y: -0.655041, z: -0.26631054, w: 0.655041}
+  m_LocalPosition: {x: 7.7780433, y: 4.540732, z: -5.9075594}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 9
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &647551803
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -53203,6 +53254,12 @@ BoxCollider:
   serializedVersion: 2
   m_Size: {x: 1.9999982, y: 0.04, z: 2.0000005}
   m_Center: {x: -0.000000059604645, y: -0.02, z: 0.000000059604645}
+--- !u!1 &711083700 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6149668692674433882, guid: 8e3784e12246b0d4ea8e5a8bc06dfd11,
+    type: 3}
+  m_PrefabInstance: {fileID: 2064246652}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &711867206
 GameObject:
   m_ObjectHideFlags: 0
@@ -71464,6 +71521,51 @@ Transform:
     type: 3}
   m_PrefabInstance: {fileID: 1219854248}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &897565743
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 897565745}
+  - component: {fileID: 897565744}
+  m_Layer: 10
+  m_Name: Stairs Ramp (walkable) - top
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!65 &897565744
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 897565743}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Size: {x: 2.8000011, y: 0.4, z: 0.38698176}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!4 &897565745
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 897565743}
+  m_LocalRotation: {x: 0, y: -0.7071068, z: -0, w: 0.7071068}
+  m_LocalPosition: {x: 5.191272, y: 6.9999895, z: -5.9075594}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 10
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &897845145
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -74119,6 +74221,12 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 3e7ea0edcbde15c459a61fb79f03dc16, type: 3}
+--- !u!1 &971565401 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 270082881127532208, guid: b6363fb4d1176924da5a92a5383f569f,
+    type: 3}
+  m_PrefabInstance: {fileID: 2084420138}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &971653385
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -78227,7 +78335,7 @@ MeshCollider:
   m_GameObject: {fileID: 1071152323}
   m_Material: {fileID: 0}
   m_IsTrigger: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 4
   m_Convex: 1
   m_CookingOptions: 30
@@ -92985,6 +93093,19 @@ Transform:
     type: 3}
   m_PrefabInstance: {fileID: 1278235154}
   m_PrefabAsset: {fileID: 0}
+--- !u!65 &1278235158
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 160866874}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Size: {x: 0.71479636, y: 1.4152474, z: 0.7728822}
+  m_Center: {x: 0, y: 0.70573825, z: -0.025973499}
 --- !u!1 &1281896128
 GameObject:
   m_ObjectHideFlags: 0
@@ -107587,6 +107708,7 @@ MonoBehaviour:
   whatIsGround:
     serializedVersion: 2
     m_Bits: 1024
+  groundCheckRadius: 0.35
   maxSlopeAngle: 120
   orientation: {fileID: 1231071163}
   state: 0
@@ -113136,6 +113258,25 @@ BoxCollider:
   serializedVersion: 2
   m_Size: {x: 1.9999982, y: 0.04, z: 2.0000005}
   m_Center: {x: -0.000000059604645, y: -0.02, z: 0.000000059604645}
+--- !u!1 &1727067407 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 1776422555143718249, guid: d5506b9f7289f2846a573b5d346d1f44,
+    type: 3}
+  m_PrefabInstance: {fileID: 1120312603}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &1727067410
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1727067407}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Size: {x: 1.8789115, y: 1.1123276, z: 1.461764}
+  m_Center: {x: 0.40293783, y: 0.4591632, z: 0.18625528}
 --- !u!1 &1729493327 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 3628352034150747267, guid: 279d112bec20f0f4a8c9536559dbaf32,
@@ -115632,18 +115773,29 @@ MonoBehaviour:
   walkSpeed: 1
   runSpeed: 3.6
   wanderRadius: 6
+  perchChance: 0.3
+  perchTime: {x: 8, y: 20}
   firstMischiefDelay: 25
   timeBetweenMischief: {x: 35, y: 70}
   stealable: 0000000001000000
   napLength: {x: 25, y: 40}
   stressWhenStealing: 3
+  keyboardTime: {x: 20, y: 35}
+  keyMashInterval: 1.1
   petStressRelief: 4
   petCooldown: 15
   notInTheMoodChance: 0.2
   bodyBone: {fileID: 0}
   headBone: {fileID: 0}
   mouthBone: {fileID: 0}
+  house: {fileID: 1300450832}
+  furniture: {fileID: 56242810}
   font: {fileID: 11400000, guid: 0adfe2d95780b3546908a70b5f321ca7, type: 2}
+  debugKeys: 1
+  debugStealKey: 91
+  debugNapKey: 93
+  debugPerchKey: 59
+  debugKeyboardKey: 39
 --- !u!195 &1793126248
 NavMeshAgent:
   m_ObjectHideFlags: 0
@@ -122929,6 +123081,25 @@ PrefabInstance:
       objectReference: {fileID: 2100000, guid: e5f76f7634a8b5243a027152eeab3522, type: 2}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 279d112bec20f0f4a8c9536559dbaf32, type: 3}
+--- !u!1 &1927472659 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 986209897887381153, guid: d26c34f03fac87b44bbdc84fa54d6b1e,
+    type: 3}
+  m_PrefabInstance: {fileID: 840594153}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &1927472662
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1927472659}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Size: {x: 1.4766132, y: 2.3684382, z: 0.7580879}
+  m_Center: {x: 0.0000006556511, y: 1.182334, z: 0.004024744}
 --- !u!1001 &1929090248
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -126247,6 +126418,8 @@ MonoBehaviour:
   bounds:
     m_Center: {x: 8.398963, y: 6.4809437, z: 0.13138533}
     m_Extent: {x: 13.524024, y: 7.5790577, z: 9.631458}
+  furniture: {fileID: 56242810}
+  maxJumpUp: 0.9
 --- !u!4 &1979699155
 Transform:
   m_ObjectHideFlags: 0
@@ -130082,6 +130255,19 @@ Transform:
     type: 3}
   m_PrefabInstance: {fileID: 2064246652}
   m_PrefabAsset: {fileID: 0}
+--- !u!65 &2064246654
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 711083700}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Size: {x: 1.0000073, y: 2.4746144, z: 0.6351099}
+  m_Center: {x: 0.000000059604645, y: 1.2500006, z: 0.017640352}
 --- !u!1001 &2067270818
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -131047,6 +131233,19 @@ Transform:
     type: 3}
   m_PrefabInstance: {fileID: 2084420138}
   m_PrefabAsset: {fileID: 0}
+--- !u!65 &2084420142
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 971565401}
+  m_Material: {fileID: 0}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Size: {x: 0.714798, y: 1.4152474, z: 0.77288216}
+  m_Center: {x: -0.000000029802322, y: 0.70573825, z: -0.025975913}
 --- !u!1 &2086988013
 GameObject:
   m_ObjectHideFlags: 0

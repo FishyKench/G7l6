@@ -11,4 +11,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Movement.unity
     guid: 981c0833db4a718448fadb9a604bcd92
+  - enabled: 1
+    path: Assets/Scenes/NewHouse.unity
+    guid: 2c0943620f6b64d43acbc2510bdd62fe
   m_configObjects: {}
