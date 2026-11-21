@@ -13,6 +13,12 @@ using UnityEngine.AI;
 ///    (health comes back after a few seconds), then peeks out again.
 ///  - Out of a fight it goes where its team needs it (the arena hands out capture points): stands in the ring to
 ///    capture, or holds a point it owns from nearby cover, watching where the enemy comes from.
+///  - CLASSES (VRLoadout): SNIPERS take a perch with a long view of the middle and wait until their aim has
+///    settled - you see their red laser on you first; they move perch after a kill. SMG RUSHERS sprint and slide,
+///    flank down the side lanes and flash a point before pushing in. LMG ANCHORS sit on points they own.
+///    ASSAULT bots do a bit of everything.
+///  - GRENADES: a frag to flush out someone hiding behind cover they just lost sight of, or onto a crowded point;
+///    a flash before pushing into a point the enemy holds. They run from live frags, and a flashbang blinds them.
 /// Built from primitives - it's a VR avatar, it's allowed to look like one.
 /// </summary>
 [RequireComponent(typeof(NavMeshAgent))]
@@ -33,13 +39,35 @@ public class VRBot : VRFighter
     public float reloadTime = 1.8f;
     public bool dummy;
 
-    /// <summary>The capture point the team wants this bot at (handed out by the arena).</summary>
+    /// <summary>The capture point the team wants this bot at (handed out by the arena's commander).</summary>
     public VRFlag Objective { get; set; }
+    /// <summary>Which way it goes in when attacking: -1 south lane, 0 main street, +1 north lane.</summary>
+    public int Lane { get; set; }
+    /// <summary>Sent after someone (you, on a kill streak): it always knows roughly where they are, until 'HuntUntil'.</summary>
+    public VRFighter Hunt { get; set; }
+    public float HuntUntil { get; set; }
     /// <summary>What it's doing, for debugging and team chat.</summary>
     public string Doing { get; private set; } = "";
 
     const float ViewAngle = 75f, ViewDistance = 75f, Hearing = 38f;
-    const float RunSpeed = 6.2f, CombatSpeed = 4f, CrouchSpeed = 2f;
+    const float CombatSpeed = 4f, CrouchSpeed = 2f, SlideSpeed = 10.5f;
+    float runSpeed = 6.2f;
+    float RunSpeed => runSpeed;
+
+    /// <summary>This bot's class.</summary>
+    public VRRole Role { get; private set; } = VRRole.Assault;
+    public bool Blinded => Time.time < blindUntil;
+    bool Sliding => Time.time < slideUntil;
+    int fragsPerLife = 1, flashesPerLife = 1, frags, flashes;
+    float blindUntil, slideUntil, slideReady, fleeUntil, nextNade, perchUntil;
+    bool slideEnding, hasPerch, flankDone;
+    int laneFor = 99;
+    float stageSince = -1f;
+    Vector3 perch, flankPoint;
+    VRFlag flankFor;
+    LineRenderer laser;
+    TextMeshPro nameText;
+    static Material laserMaterial;
 
     NavMeshAgent agent;
     VRFighter target;
@@ -123,6 +151,71 @@ public class VRBot : VRFighter
         tag.alignment = TextAlignmentOptions.Center;
         tag.rectTransform.sizeDelta = new Vector2(4f, 0.6f);
         nameTag = tag.transform;
+        nameText = tag;
+
+        laser = new GameObject("Laser").AddComponent<LineRenderer>();
+        laser.transform.SetParent(transform, false);
+        laser.positionCount = 2;
+        laser.useWorldSpace = true;
+        laser.startWidth = 0.018f;
+        laser.endWidth = 0.008f;
+        if (!laserMaterial) laserMaterial = new Material(Shader.Find("Sprites/Default"));
+        laser.sharedMaterial = laserMaterial;
+        laser.startColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.7f);
+        laser.endColor = new Color(teamColor.r, teamColor.g, teamColor.b, 0.25f);
+        laser.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        laser.enabled = false;
+    }
+
+    /// <summary>
+    /// Gives the bot a class: its gun, how it moves and where it likes to fight, on top of the round's skill level
+    /// (baseSpread / baseFireRate / baseDamage are what an ASSAULT bot gets this round).
+    /// </summary>
+    public void ApplyRole(VRRole role, float baseSpread, float baseFireRate, float baseDamage, float reaction, float settle)
+    {
+        Role = role;
+        var l = VRLoadout.For(role);
+        spread = baseSpread * l.botSpread;
+        damage = role == VRRole.Sniper ? 55f : baseDamage * l.botDamage; // sniper: two to the body, one to the head
+        fireRate = role == VRRole.Sniper ? 1f : baseFireRate * l.botFireRate;
+        reactionTime = reaction * (role == VRRole.SMG ? 0.85f : 1f);
+        aimSettle = role == VRRole.Sniper ? settle * 1.5f : settle;
+        runSpeed = l.botRun;
+        preferredDistance = l.botDistance * Random.Range(0.85f, 1.15f);
+        aggression = Mathf.Clamp01(l.botAggression + Random.Range(-0.1f, 0.1f));
+        magazine = l.botMagazine;
+        reloadTime = role == VRRole.LMG ? 3f : role == VRRole.Sniper ? 2.4f : 1.8f;
+        fragsPerLife = l.frags;
+        flashesPerLife = l.flashes;
+        frags = fragsPerLife;
+        flashes = flashesPerLife;
+        ammo = magazine;
+        if (agent) agent.speed = runSpeed;
+        if (gun)
+        {
+            float len = role == VRRole.SMG ? 0.45f : role == VRRole.Sniper ? 1.1f : role == VRRole.LMG ? 0.85f : 0.7f;
+            float thick = role == VRRole.LMG ? 1.3f : 1f;
+            gun.localScale = new Vector3(0.09f * thick, 0.12f * thick, len);
+            gun.localPosition = new Vector3(0.28f, 1.1f, 0.1f + len * 0.5f);
+        }
+        if (nameText)
+        {
+            nameText.text = $"{fighterName}\n<size=60%>{l.name}</size>";
+            nameText.rectTransform.sizeDelta = new Vector2(4f, 1.2f);
+        }
+    }
+
+    /// <summary>A sniper who just got a kill finds a new spot.</summary>
+    public void MovePerch() => perchUntil = 0f;
+
+    public override void Blind(float seconds)
+    {
+        blindUntil = Mathf.Max(blindUntil, Time.time + seconds);
+        seesTarget = false;
+        tracking = 0f;
+        spotting = reactionTime * 2f;
+        burstLeft = 0f;
+        if (laser) laser.enabled = false;
     }
 
     GameObject Part(PrimitiveType shape, string name, Vector3 pos, Vector3 scale, Material m)
@@ -158,6 +251,14 @@ public class VRBot : VRFighter
         spotFor = null;
         SetCrouch(false);
         spawnedAt = Time.time;
+        frags = fragsPerLife;
+        flashes = flashesPerLife;
+        blindUntil = slideUntil = fleeUntil = 0f;
+        slideEnding = false;
+        hasPerch = false;
+        flankFor = null;
+        nextNade = Time.time + Random.Range(3f, 8f);
+        if (laser) laser.enabled = false;
         watchDir = rotation * Vector3.forward;
     }
 
@@ -182,7 +283,7 @@ public class VRBot : VRFighter
 
         var arena = VRArena.Instance;
         bool fighting = arena && (arena.State == VRArena.Mode.Fighting || arena.State == VRArena.Mode.Practice);
-        if (!fighting || !agent.isOnNavMesh) { if (agent.isOnNavMesh) agent.isStopped = true; return; }
+        if (!fighting || !agent.isOnNavMesh) { if (agent.isOnNavMesh) agent.isStopped = true; if (laser) laser.enabled = false; return; }
         agent.isStopped = false;
         Regenerate(dt);
 
@@ -195,8 +296,11 @@ public class VRBot : VRFighter
             Perceive();
             Decide(arena);
         }
+        if (slideEnding && !Sliding) { slideEnding = false; SetCrouch(false); }
+        if (Sliding) agent.speed = SlideSpeed;
         Turn(dt);
         Shooting(dt);
+        Laser();
         Unstick(dt);
         Animate(dt);
     }
@@ -205,6 +309,7 @@ public class VRBot : VRFighter
 
     void Perceive()
     {
+        if (Blinded) { seesTarget = false; return; }
         VRFighter best = null;
         float bestScore = float.MaxValue;
         foreach (var f in All)
@@ -217,7 +322,7 @@ public class VRBot : VRFighter
             bool remembered = f == target && Time.time - lastKnownAt < 1.2f;
             if (!lookingThatWay && d > 4f && !remembered) continue;
             if (!CanSee(f)) continue;
-            float score = d * (f == target ? 0.6f : 1f) * (f.Health < f.maxHealth * 0.5f ? 0.85f : 1f);
+            float score = d * (f == target ? 0.6f : 1f) * (f.Health < f.maxHealth * 0.5f ? 0.85f : 1f) * (f is VRPlayer ? 0.75f : 1f);
             if (score < bestScore) { bestScore = score; best = f; }
         }
 
@@ -269,16 +374,49 @@ public class VRBot : VRFighter
     {
         if (target && (!target.Alive || !target.isActiveAndEnabled)) { target = null; seesTarget = false; }
 
+        if (Blinded)
+        {
+            // Staggering about, can't see a thing.
+            Doing = "blinded";
+            SetCrouch(false);
+            repath -= 0.13f;
+            if (repath <= 0f)
+            {
+                repath = Random.Range(0.5f, 1f);
+                var r = Random.insideUnitCircle * 2.5f;
+                Go(transform.position + new Vector3(r.x, 0f, r.y), CrouchSpeed + 0.5f);
+                watchDir = new Vector3(r.x, 0f, r.y);
+            }
+            return;
+        }
+        if (DodgeGrenade()) return;
+        if (TryGrenade(arena)) return;
+        MaybeSlide();
+
         bool hurt = Health < maxHealth * (0.35f + 0.2f * (1f - aggression));
         bool needCover = seesTarget && (hurt || Reloading) || takingCover;
         if (needCover && Cover(arena)) return;
 
         if (seesTarget) { Fight(arena); return; }
 
+        // Hunting someone (you, on a streak): it knows roughly where you are and comes for you.
+        if (Hunt && Hunt.Alive && Time.time < HuntUntil)
+        {
+            Doing = "hunting " + Hunt.fighterName;
+            SetCrouch(false);
+            lastKnown = Hunt.transform.position;
+            lastKnownAt = Time.time - 1f;
+            target = Hunt;
+            Go(Hunt.transform.position, RunSpeed);
+            watchDir = Hunt.transform.position - transform.position;
+            return;
+        }
+
         // Lost sight: check where they were (unless the objective's more urgent).
         bool recent = Time.time - lastKnownAt < 3.5f && Vector3.Distance(lastKnown, transform.position) < 32f;
         bool capturing = Objective && Objective.Contains(transform.position) && Objective.Owner != team;
-        if (recent && target && !capturing)
+        bool onJob = Objective && Objective.Owner != team && Vector3.Distance(transform.position, Objective.Position) < 35f;
+        if (recent && target && !capturing && !onJob)
         {
             Doing = "checking";
             SetCrouch(false);
@@ -297,6 +435,41 @@ public class VRBot : VRFighter
         Vector3 dir = dist > 0.01f ? to / dist : transform.forward;
         watchDir = dir;
 
+        if (Role == VRRole.Sniper)
+        {
+            // Snipers stay put and steady (crouched), unless someone gets close - then they back off to cover.
+            if (dist < 10f && Cover(arena)) return;
+            SetCrouch(dist > 12f);
+            Go(transform.position, CombatSpeed);
+            return;
+        }
+        // On the way to a point: don't stop for a long-range duel - keep pushing in and shoot on the move.
+        bool advancing = Objective && Objective.Owner != team && !Objective.Contains(transform.position);
+        if (advancing && Health > maxHealth * 0.45f)
+        {
+            Doing = $"pushing {Objective.letter} under fire";
+            SetCrouch(false);
+            if (spotFor != Objective) { spotFor = Objective; spotPickedAt = Time.time; objectiveSpot = Objective.RandomSpot(0.6f); }
+            Vector3 pushTo = !flankDone && flankFor == Objective ? flankPoint : objectiveSpot;
+            Go(pushTo, Role == VRRole.SMG ? RunSpeed : CombatSpeed + 1.4f);
+            return;
+        }
+        // Rushers close the gap and fight up close.
+        bool pointDuty = Objective && Objective.Owner != team;
+        if (Role == VRRole.SMG && dist > 7f && Health > maxHealth * 0.4f
+            && (!pointDuty || Vector3.Distance(target.transform.position, Objective.Position) < Objective.radius + 6f))
+        {
+            Doing = "rushing " + target.fighterName;
+            SetCrouch(false);
+            Go(target.transform.position, RunSpeed);
+            return;
+        }
+        if (Role == VRRole.LMG && dist > 10f && Random.value < 0.12f)
+        {
+            holdUntil = Time.time + Random.Range(1.2f, 2.2f); // plant and spray
+            SetCrouch(true);
+        }
+
         // Steadying the aim: crouch and stand still for a moment (more often at range).
         if (Time.time < holdUntil) { agent.SetDestination(transform.position); return; }
         if (dist > 12f && Random.value < 0.06f + 0.04f * (1f - aggression))
@@ -312,9 +485,11 @@ public class VRBot : VRFighter
         repath = Random.Range(0.6f, 1.3f);
 
         Vector3 goal;
-        if (Objective && Objective.Contains(transform.position) && Objective.Owner != team)
+        bool defendRing = Objective && Objective.Owner == team && Objective.Inside[1 - team] > 0
+                          && Vector3.Distance(transform.position, Objective.Position) < Objective.radius + 12f;
+        if (Objective && (Objective.Owner != team && Objective.Contains(transform.position) || defendRing))
         {
-            // Stay on the point while fighting - that's how it gets captured.
+            // Stay on the point while fighting - that's how it gets captured (or kept).
             goal = Objective.RandomSpot(0.7f);
         }
         else
@@ -334,7 +509,15 @@ public class VRBot : VRFighter
         {
             if (Time.time < coverUntil) return false; // tried a moment ago and found nothing
             Vector3 threat = target ? target.EyePoint : lastKnown + Vector3.up * 1.5f;
-            if (!arena.FindCover(transform.position, threat, 12f, out var spot)) { coverUntil = Time.time + 2f; return false; }
+            bool onPoint = Objective && Objective.Owner != team && Objective.Contains(transform.position);
+            Vector3 near = onPoint ? Objective.Position : transform.position;
+            float range = onPoint ? Objective.radius * 0.9f : 12f;
+            if (!arena.FindCover(near, threat, range, out var spot))
+            {
+                coverUntil = Time.time + 2f;
+                if (onPoint) { holdUntil = Time.time + 1f; SetCrouch(true); } // nowhere to hide on the point: get low, keep shooting
+                return false;
+            }
             takingCover = true;
             coverUntil = Time.time + Random.Range(2.5f, 4f);
             Go(spot, RunSpeed);
@@ -355,8 +538,10 @@ public class VRBot : VRFighter
 
     void PlayObjective(VRArena arena)
     {
+        if (Role == VRRole.Sniper && SniperPost(arena)) return;
         SetCrouch(false);
         var flag = Objective;
+        if (flag && flag.Owner != team && Route(flag, arena)) return;
         if (!flag) { Doing = "roaming"; Wander(); return; }
 
         bool inside = flag.Contains(transform.position);
@@ -389,6 +574,175 @@ public class VRBot : VRFighter
         if (agent.remainingDistance < 0.6f && Random.value < 0.02f) SetCrouch(true);
     }
 
+    /// <summary>Sniper: go to a perch with a long view of the middle, crouch, watch. New perch now and then.</summary>
+    bool SniperPost(VRArena arena)
+    {
+        if (!hasPerch || Time.time > perchUntil)
+        {
+            if (arena.Perch(team, hasPerch ? perch : transform.position, out var spot))
+            {
+                perch = spot;
+                hasPerch = true;
+                perchUntil = Time.time + Random.Range(25f, 40f);
+            }
+        }
+        if (!hasPerch) return false;
+        float d = Vector3.Distance(transform.position, perch);
+        Doing = d > 2f ? "moving to a sniper perch" : "sniping";
+        Go(perch, d > 6f ? RunSpeed : CombatSpeed);
+        var mid = arena.Flags.Count > 0 ? arena.Flags[arena.Flags.Count / 2].Position : transform.position + transform.forward;
+        watchDir = d > 4f && agent.velocity.sqrMagnitude > 1f ? agent.velocity : mid - transform.position;
+        SetCrouch(d < 1.2f);
+        return true;
+    }
+
+    /// <summary>
+    /// Attacking a point: go in along its lane (round the north or south street for the flankers, up the main
+    /// street for the rest) to a staging spot short of the point. If the enemy holds or is on the point, wait
+    /// there (a few seconds at most) for the squad, then storm it together - with a flashbang if it has one.
+    /// </summary>
+    bool Route(VRFlag flag, VRArena arena)
+    {
+        if (flankFor != flag || laneFor != Lane)
+        {
+            flankFor = flag;
+            laneFor = Lane;
+            flankDone = true;
+            stageSince = -1f;
+            Vector3 to = Flat(flag.Position - transform.position);
+            float d = to.magnitude;
+            if (d > 20f)
+            {
+                // The staging spot: on the lane, most of the way there (or 13 m short of it on the main street).
+                Vector3 stage = Lane != 0
+                    ? new Vector3(Mathf.Lerp(transform.position.x, flag.Position.x, 0.8f), flag.Position.y, arena.LaneZ(Lane))
+                    : flag.Position - to / d * 13f;
+                if (NavMesh.SamplePosition(stage, out var hit, 6f, NavMesh.AllAreas))
+                {
+                    flankPoint = hit.position;
+                    flankDone = false;
+                }
+            }
+        }
+        if (flankDone) return false;
+
+        if (Vector3.Distance(transform.position, flankPoint) > 3.5f)
+        {
+            Doing = (Lane > 0 ? "flanking north to " : Lane < 0 ? "flanking south to " : "moving up to ") + flag.letter;
+            Go(flankPoint, RunSpeed);
+            watchDir = agent.velocity.sqrMagnitude > 1f ? agent.velocity : flag.Position - transform.position;
+            return true;
+        }
+
+        // At the staging spot.
+        bool hot = flag.Owner == 1 - team || flag.Inside[1 - team] > 0;
+        if (hot)
+        {
+            if (stageSince < 0f) stageSince = Time.time;
+            if (Time.time - stageSince < 2.5f && !arena.SquadReady(this, flag))
+            {
+                Doing = $"waiting for the squad to push {flag.letter}";
+                SetCrouch(true);
+                Go(transform.position, CrouchSpeed);
+                watchDir = flag.Position - transform.position;
+                return true;
+            }
+            if (flashes > 0 && Vector3.Distance(transform.position, flag.Position) < 30f) Throw(VRGrenade.Kind.Flash, flag.Position + Vector3.up * 0.4f);
+        }
+        flankDone = true;
+        SetCrouch(false);
+        return false;
+    }
+
+    void MaybeSlide()
+    {
+        if (Sliding || crouched || Time.time < slideReady) return;
+        if (Role != VRRole.SMG && Role != VRRole.Assault) return;
+        if (agent.velocity.magnitude < runSpeed * 0.85f) return;
+        bool urgent = seesTarget || Time.time - lastKnownAt < 3f || (Objective && Vector3.Distance(transform.position, Objective.Position) < 25f);
+        if (!urgent || Random.value > (Role == VRRole.SMG ? 0.12f : 0.05f)) return;
+        slideUntil = Time.time + 0.6f;
+        slideReady = Time.time + Random.Range(2.5f, 5f);
+        slideEnding = true;
+        SetCrouch(true);
+    }
+
+    /// <summary>A live enemy frag close by: get away from it.</summary>
+    bool DodgeGrenade()
+    {
+        if (Time.time < fleeUntil) return true;
+        foreach (var g in VRGrenade.Live)
+        {
+            if (!g || g.kind != VRGrenade.Kind.Frag || g.team == team || g.FuseLeft > 2.05f) continue;
+            Vector3 away = Flat(transform.position - g.Position);
+            float d = away.magnitude;
+            if (d > 6f) continue;
+            away = d > 0.1f ? away / d : Flat(Random.insideUnitSphere).normalized;
+            Go(transform.position + away * 7f, RunSpeed);
+            watchDir = away;
+            fleeUntil = Time.time + 1.1f;
+            takingCover = false;
+            SetCrouch(false);
+            Doing = "dodging a grenade";
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Frag someone hiding behind cover, frag a crowded point, or flash a point before pushing it.</summary>
+    bool TryGrenade(VRArena arena)
+    {
+        if (Time.time < nextNade || Time.time - spawnedAt < 2f) return false;
+        var flag = Objective;
+        if (frags > 0 && !seesTarget && target && Time.time - lastKnownAt < 3f)
+        {
+            float d = Vector3.Distance(transform.position, lastKnown);
+            if (d > 7f && d < 26f && Random.value < 0.35f) { Throw(VRGrenade.Kind.Frag, lastKnown); return true; }
+        }
+        if (flag && flag.Owner != team && flag.Inside[1 - team] > 0)
+        {
+            float d = Vector3.Distance(transform.position, flag.Position);
+            if (d > 8f && d < 24f)
+            {
+                if (flashes > 0 && Random.value < 0.3f) { Throw(VRGrenade.Kind.Flash, flag.Position + Vector3.up * 0.4f); return true; }
+                if (frags > 0 && flag.Inside[1 - team] >= 2 && Random.value < 0.25f) { Throw(VRGrenade.Kind.Frag, flag.Position); return true; }
+            }
+        }
+        return false;
+    }
+
+    void Throw(VRGrenade.Kind kind, Vector3 at)
+    {
+        if (kind == VRGrenade.Kind.Frag) frags--; else flashes--;
+        nextNade = Time.time + Random.Range(6f, 11f);
+        Vector3 from = EyePoint + Flat(at - transform.position).normalized * 0.45f + Vector3.up * 0.1f;
+        var miss = Random.insideUnitCircle * 1.3f;
+        Vector3 aim = at + new Vector3(miss.x, 0f, miss.y);
+        float d = Vector3.Distance(from, aim);
+        VRGrenade.Throw(kind, this, from, VRGrenade.Lob(from, aim, Mathf.Clamp(d / 13f, 0.6f, 1.5f)));
+        watchDir = at - transform.position;
+        holdUntil = Time.time + 0.35f;
+        recoil = 1.5f;
+        Doing = kind == VRGrenade.Kind.Frag ? "throwing a frag" : "throwing a flash";
+        var hud = VRArena.Instance ? VRArena.Instance.Hud : null;
+        if (hud && team == 0 && Random.value < 0.6f)
+            hud.Chat(fighterName, kind == VRGrenade.Kind.Frag ? "frag out!" : $"flashing {(Objective ? Objective.letter : "them")}, push!");
+    }
+
+    /// <summary>A sniper's laser sight on its target (it wobbles until the aim settles) - your warning.</summary>
+    void Laser()
+    {
+        if (!laser) return;
+        bool on = Role == VRRole.Sniper && seesTarget && target && !Blinded && !Reloading && spotting <= reactionTime * 0.5f;
+        laser.enabled = on;
+        if (!on) return;
+        Vector3 from = gun ? gun.position + gun.forward * gun.localScale.z * 0.5f : EyePoint;
+        float wobble = Mathf.Clamp01(1f - tracking / Mathf.Max(0.1f, aimSettle)) * 0.8f;
+        Vector3 jitter = new Vector3(Mathf.PerlinNoise(Time.time * 2f, 1f) - 0.5f, Mathf.PerlinNoise(2f, Time.time * 2f) - 0.5f, 0f) * wobble * 2f;
+        laser.SetPosition(0, from);
+        laser.SetPosition(1, target.AimPoint + Vector3.up * 0.25f + jitter);
+    }
+
     void Wander()
     {
         repath -= 0.13f;
@@ -401,7 +755,7 @@ public class VRBot : VRFighter
 
     void Go(Vector3 goal, float speed)
     {
-        agent.speed = crouched ? CrouchSpeed : speed;
+        agent.speed = Sliding ? SlideSpeed : crouched ? CrouchSpeed : speed;
         if (NavMesh.SamplePosition(goal, out var hit, 2.5f, NavMesh.AllAreas)) goal = hit.position;
         if (!agent.hasPath || Vector3.Distance(agent.destination, goal) > 0.4f) agent.SetDestination(goal);
     }
@@ -443,10 +797,12 @@ public class VRBot : VRFighter
             if (reloadLeft <= 0f) ammo = magazine;
             return;
         }
+        if (Blinded) return;
         if (!seesTarget || !target) { if (ammo < magazine * 0.4f && Time.time - lastKnownAt > 2f) Reload(); return; }
         tracking += dt;
         spotting -= dt;
         if (spotting > 0f || fireCooldown > 0f) return;
+        if (Role == VRRole.Sniper && tracking < aimSettle * 0.8f) return; // waits for a steady shot
         Vector3 to = target.AimPoint - EyePoint;
         if (Vector3.Angle(Flat(transform.forward), Flat(to)) > 14f) return; // still turning
         if (FriendInTheWay(to)) { fireCooldown = 0.25f; return; }
@@ -454,9 +810,10 @@ public class VRBot : VRFighter
         Shoot();
         ammo--;
         if (ammo <= 0) { Reload(); return; }
-        if (burstLeft <= 0f) burstLeft = Random.Range(3, 7);
+        if (Role == VRRole.Sniper) { fireCooldown = Random.Range(1.6f, 2.4f); tracking *= 0.6f; return; }
+        if (burstLeft <= 0f) burstLeft = Role == VRRole.LMG ? Random.Range(8, 14) : Role == VRRole.SMG ? Random.Range(6, 11) : Random.Range(4, 8);
         burstLeft--;
-        fireCooldown = burstLeft > 0f ? 1f / fireRate : Random.Range(0.35f, 0.8f);
+        fireCooldown = burstLeft > 0f ? 1f / fireRate : Random.Range(0.2f, 0.45f);
     }
 
     void Reload()
@@ -486,10 +843,13 @@ public class VRBot : VRFighter
         float targetSpeed = target is VRPlayer p ? p.SpeedAmount * 7f : (target is VRBot b && b.agent ? b.agent.velocity.magnitude * 0.6f : 0f);
         float range = 1f + Mathf.Max(0f, dist - 25f) / 50f;
         float angle = spread * settle * moving * (1f + targetSpeed / 16f) * range * (crouched ? 0.8f : 1f);
+        if (Role == VRRole.Sniper && dist < 10f) angle *= 5f;
         // Misses spread less the further away the target is (a degree is a lot at range): keep it a sensible size.
         angle = Mathf.Min(angle, Mathf.Atan2(1.6f, Mathf.Max(1f, dist)) * Mathf.Rad2Deg + spread * 0.5f);
 
-        Vector3 aim = target.AimPoint + Vector3.up * Random.Range(-0.2f, 0.4f) - from;
+        bool settled = tracking > aimSettle;
+        float height = settled && Random.value < 0.3f ? Random.Range(0.42f, 0.55f) : Random.Range(-0.2f, 0.35f); // the head, sometimes
+        Vector3 aim = target.AimPoint + Vector3.up * height - from;
         Vector2 miss = Random.insideUnitCircle * Mathf.Tan(angle * Mathf.Deg2Rad);
         Quaternion basis = Quaternion.LookRotation(aim);
         Vector3 dir = (basis * new Vector3(miss.x, miss.y * 0.7f, 1f)).normalized;
@@ -518,13 +878,14 @@ public class VRBot : VRFighter
         float squat = crouched ? 0.7f : 1f;
         visual.localScale = Vector3.Lerp(visual.localScale, new Vector3(1f, squat, 1f), dt * 12f);
         visual.localPosition = new Vector3(0f, Mathf.Abs(Mathf.Sin(bob)) * 0.06f * Mathf.Clamp01(speed / 3f), 0f);
-        visual.localRotation = Quaternion.Euler(Mathf.Clamp(speed * 1.5f, 0f, 8f) - recoil * 3f, 0f, lean);
+        visual.localRotation = Quaternion.Euler(Sliding ? -18f : Mathf.Clamp(speed * 1.5f, 0f, 8f) - recoil * 3f, 0f, lean);
         if (gun) gun.localPosition = new Vector3(0.28f, 1.1f, 0.45f - recoil * 0.06f);
     }
 
     protected override void OnDied(VRFighter killer)
     {
         deathTime = Time.time;
+        if (laser) laser.enabled = false;
         if (agent.isOnNavMesh) agent.isStopped = true;
         agent.enabled = false;
         SetCrouch(false);

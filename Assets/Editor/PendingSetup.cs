@@ -18,6 +18,8 @@ using UnityEngine;
 ///   scatter-laundry.request - dirty clothes become pieces scattered round your room (removes the old pile)
 ///   stairs.request - rebuilds only the stairs (flights, landings, top-floor balustrade); nothing else
 ///   entry-floor.request - limestone floor in the entrance + the TV remote held the right way round
+///   doors.request - a styled, working door in every doorway (+ the garage door dressed up)
+///   props.request - nicer models for the mop and the bucket (nothing else changes)
 ///   vr-arena.request - rebuilds only the VR arena map (Neon District, 8v8 Domination); the house isn't touched
 /// </summary>
 [InitializeOnLoad]
@@ -37,6 +39,8 @@ static class PendingSetup
     const string ArenaRequest = "Library/G7l6/vr-arena.request";
     const string StairsRequest = "Library/G7l6/stairs.request";
     const string EntryRequest = "Library/G7l6/entry-floor.request";
+    const string DoorsRequest = "Library/G7l6/doors.request";
+    const string PropsRequest = "Library/G7l6/props.request";
     const double GiveUpAfterSeconds = 120;
 
     static double startedAt;
@@ -45,7 +49,7 @@ static class PendingSetup
     static PendingSetup()
     {
         if (!File.Exists(AddCatRequest) && !File.Exists(CatSizeRequest) && !File.Exists(FixStairsRequest) && !File.Exists(CatOverhaulRequest)
-            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest) && !File.Exists(MatchRequest) && !File.Exists(VRRequest) && !File.Exists(FinishRequest) && !File.Exists(ScatterRequest) && !File.Exists(ArenaRequest) && !File.Exists(StairsRequest) && !File.Exists(EntryRequest)) return;
+            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest) && !File.Exists(MatchRequest) && !File.Exists(VRRequest) && !File.Exists(FinishRequest) && !File.Exists(ScatterRequest) && !File.Exists(ArenaRequest) && !File.Exists(StairsRequest) && !File.Exists(EntryRequest) && !File.Exists(DoorsRequest) && !File.Exists(PropsRequest)) return;
         startedAt = EditorApplication.timeSinceStartup;
         EditorApplication.update += Poll;
     }
@@ -70,7 +74,9 @@ static class PendingSetup
         bool arenaMap = File.Exists(ArenaRequest);
         bool newStairs = File.Exists(StairsRequest);
         bool entry = File.Exists(EntryRequest);
-        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders && !match && !vr && !finish && !scatter && !arenaMap && !newStairs && !entry) { EditorApplication.update -= Poll; return; }
+        bool doorsReq = File.Exists(DoorsRequest);
+        bool propsReq = File.Exists(PropsRequest);
+        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders && !match && !vr && !finish && !scatter && !arenaMap && !newStairs && !entry && !doorsReq && !propsReq) { EditorApplication.update -= Poll; return; }
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
 
         // Wait for the cat model to finish importing.
@@ -157,6 +163,16 @@ static class PendingSetup
         {
             File.Delete(EntryRequest);
             EntryFloorBuilder.Apply();
+        }
+        if (doorsReq)
+        {
+            File.Delete(DoorsRequest);
+            DoorBuilder.AddDoors();
+        }
+        if (propsReq)
+        {
+            File.Delete(PropsRequest);
+            PropsBuilder.Apply();
         }
     }
 }

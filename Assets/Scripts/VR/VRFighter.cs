@@ -56,6 +56,9 @@ public abstract class VRFighter : MonoBehaviour
     }
 
     protected virtual void OnHurt(float amount, VRFighter from, bool headshot) { }
+
+    /// <summary>Hit by a flashbang: can't see properly for a few seconds.</summary>
+    public virtual void Blind(float seconds) { }
     protected virtual void OnDied(VRFighter killer) { }
 
     /// <summary>Clear line of fire from this fighter's eyes to a point (nothing solid in between except the target).</summary>

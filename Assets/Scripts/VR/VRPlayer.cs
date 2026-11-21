@@ -7,6 +7,8 @@ using UnityEngine;
 ///   Hold left click to fire (30 rounds, R reload), hold right click to aim down the sights (zoom, red dot,
 ///   tighter shots, slower moving). Headshots do double damage.
 ///   The camera reacts: bob, lean into strafes, shake on jumps / hard landings / shots, dip on landing.
+/// Classes (1-4, applies when you spawn - or straight away in the first seconds after spawning): ASSAULT, SMG,
+/// SNIPER (right click = scope), LMG - see VRLoadout. G throws a frag, Q a flashbang (counts depend on the class).
 /// When you're not wearing the headset ('controlled' is off) your avatar just stands there - AFK.
 /// </summary>
 [RequireComponent(typeof(CharacterController))]
@@ -40,6 +42,17 @@ public class VRPlayer : VRFighter
 
     public bool controlled;
     public Camera Cam { get; private set; }
+    /// <summary>Your class now, and the one you'll have next time you spawn.</summary>
+    public VRRole Role { get; private set; } = VRRole.Assault;
+    public VRRole NextRole { get; private set; } = VRRole.Assault;
+    public VRLoadout Loadout { get; private set; } = VRLoadout.For(VRRole.Assault);
+    public int Frags { get; private set; }
+    public int Flashes { get; private set; }
+    /// <summary>0..1 how blinded you are by a flashbang.</summary>
+    public float FlashAmount => Mathf.Clamp01((flashUntil - Time.time) / Mathf.Max(0.1f, flashFade));
+    /// <summary>Looking through the sniper scope.</summary>
+    public bool Scoped => Role == VRRole.Sniper && Aim > 0.85f && Alive;
+    public float SpawnedAt { get; private set; } = -10f;
     public int Ammo { get; private set; }
     public bool Reloading => reloadLeft > 0f;
     public float ReloadProgress => Reloading ? 1f - reloadLeft / reloadTime : 1f;
@@ -69,8 +82,12 @@ public class VRPlayer : VRFighter
     Vector3 vaultFrom, vaultApex, vaultTo;
     int streak;
     float lastStreakKill = -10f;
+    float flashUntil, flashFade = 1f, throwCooldown, baseWalk = -1f, baseSprint, baseAimMove;
+    Transform scope;
 
     public override Vector3 AimPoint => transform.position + Vector3.up * (Sliding ? 0.6f : 1.15f);
+    /// <summary>Is this point (where a shot hit you) your head? (The top of your body, whether standing or sliding.)</summary>
+    public bool IsHead(Vector3 point) => cc && point.y > transform.position.y + cc.center.y + cc.height * 0.5f - 0.32f;
     public override Vector3 EyePoint => Cam ? Cam.transform.position : transform.position + Vector3.up * 1.6f;
     protected override bool CanBeHurt => Time.time >= invulnerableUntil;
 
@@ -149,6 +166,20 @@ public class VRPlayer : VRFighter
         SightFrame(new Vector3(0f, 0.115f, -0.055f), 0.056f, 0.006f, dark);
         SightFrame(new Vector3(0f, 0.115f, 0.015f), 0.06f, 0.007f, dark);
 
+        scope = new GameObject("Scope").transform;
+        scope.SetParent(gun, false);
+        foreach (var (pos, size) in new[] { (new Vector3(0f, 0.125f, 0.02f), new Vector3(0.045f, 0.045f, 0.3f)), (new Vector3(0f, 0.09f, 0.02f), new Vector3(0.02f, 0.03f, 0.06f)) })
+        {
+            var s = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(s.GetComponent<Collider>());
+            s.transform.SetParent(scope, false);
+            s.transform.localPosition = pos;
+            s.transform.localScale = size;
+            s.GetComponent<Renderer>().sharedMaterial = dark;
+            s.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+        scope.gameObject.SetActive(false);
+
         muzzle = new GameObject("Muzzle").transform;
         muzzle.SetParent(gun, false);
         muzzle.localPosition = new Vector3(0f, -0.015f, 0.44f);
@@ -195,8 +226,58 @@ public class VRPlayer : VRFighter
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
     }
 
+    /// <summary>Pick your class (applies when you spawn - straight away if you only just spawned).</summary>
+    public void ChooseRole(VRRole role)
+    {
+        NextRole = role;
+        if (Alive && Time.time - SpawnedAt < 4f && Role != role) { ApplyLoadout(); Ammo = magazine; reloadLeft = 0f; }
+    }
+
+    void ApplyLoadout()
+    {
+        if (baseWalk < 0f) { baseWalk = walkSpeed; baseSprint = sprintSpeed; baseAimMove = aimingSpeed; }
+        Role = NextRole;
+        Loadout = VRLoadout.For(Role);
+        var l = Loadout;
+        fireRate = l.fireRate; damage = l.damage; magazine = l.magazine; reloadTime = l.reloadTime;
+        spreadStill = l.spreadStill; spreadMoving = l.spreadMoving; spreadAiming = l.spreadAiming;
+        recoilKick = l.recoil; aimFieldOfView = l.aimFov;
+        walkSpeed = baseWalk * l.moveSpeed; sprintSpeed = baseSprint * l.moveSpeed; aimingSpeed = baseAimMove * l.moveSpeed;
+        Frags = l.frags;
+        Flashes = l.flashes;
+        if (gun) gun.localScale = new Vector3(Role == VRRole.LMG ? 1.25f : 1f, Role == VRRole.LMG ? 1.15f : 1f, l.gunLength);
+        if (scope) scope.gameObject.SetActive(Role == VRRole.Sniper);
+    }
+
+    public override void Blind(float seconds)
+    {
+        if (Time.time + seconds > flashUntil) { flashUntil = Time.time + seconds; flashFade = seconds; }
+        Shake(0.2f);
+    }
+
+    /// <summary>G: frag, Q: flashbang. Thrown where you look, a bit upwards.</summary>
+    void Throwing(float dt)
+    {
+        throwCooldown -= dt;
+        if (throwCooldown > 0f || vaulting) return;
+        VRGrenade.Kind? kind = null;
+        if (Input.GetKeyDown(KeyCode.G) && Frags > 0) { kind = VRGrenade.Kind.Frag; Frags--; }
+        else if (Input.GetKeyDown(KeyCode.Q) && Flashes > 0) { kind = VRGrenade.Kind.Flash; Flashes--; }
+        if (kind == null) return;
+        throwCooldown = 0.7f;
+        var look = Cam.transform;
+        Vector3 from = look.position + look.forward * 0.5f + look.right * 0.15f - look.up * 0.05f;
+        Vector3 v = look.forward * 17f + Vector3.up * 3.5f + Flat(velocity) * 0.6f;
+        VRGrenade.Throw(kind.Value, this, from, v);
+        kick = 1.5f;
+        Shake(0.06f);
+    }
+
     public override void Respawn(Vector3 position, Quaternion rotation)
     {
+        ApplyLoadout();
+        SpawnedAt = Time.time;
+        flashUntil = 0f;
         cc.enabled = false;
         base.Respawn(position, rotation);
         cc.enabled = true;
@@ -238,6 +319,9 @@ public class VRPlayer : VRFighter
 
         if (!Alive)
         {
+            if (controlled)
+                for (int i = 0; i < VRLoadout.All.Length; i++)
+                    if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i)) NextRole = VRLoadout.All[i];
             deathTilt = Mathf.MoveTowards(deathTilt, 1f, dt * 2f);
             head.localPosition = new Vector3(0f, Mathf.Lerp(eyeHeight, 0.4f, deathTilt), 0f);
             Cam.transform.localRotation = Quaternion.Euler(pitch, 0f, 35f * deathTilt);
@@ -247,16 +331,23 @@ public class VRPlayer : VRFighter
         }
         gunHolder.gameObject.SetActive(true);
         Regenerate(dt);
+        bool briefing = VRArena.Instance && VRArena.Instance.State == VRArena.Mode.Briefing;
+        if (controlled && !briefing)
+        {
+            for (int i = 0; i < VRLoadout.All.Length; i++)
+                if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i)) ChooseRole(VRLoadout.All[i]);
+            Throwing(dt);
+        }
 
         if (vaulting) { VaultStep(dt); CameraFeel(dt, 0f, true); return; }
 
         bool grounded = cc.isGrounded;
         Vector2 input = Vector2.zero;
         bool aimHeld = false, sprintHeld = false, jump = false, slide = false;
-        if (controlled)
+        if (controlled && !briefing)
         {
             if (sensitivity < 0f) sensitivity = HouseSensitivity();
-            float sens = sensitivity * Mathf.Lerp(1f, 0.55f, Aim);
+            float sens = sensitivity * Mathf.Lerp(1f, Role == VRRole.Sniper ? 0.3f : 0.55f, Aim);
             yaw += Input.GetAxisRaw("Mouse X") * sens;
             pitch -= Input.GetAxisRaw("Mouse Y") * sens;
             pitch = Mathf.Clamp(pitch, -85f, 85f);
@@ -327,7 +418,7 @@ public class VRPlayer : VRFighter
 
         float horizontal = Flat(velocity).magnitude;
         SpeedAmount = Mathf.Clamp01((horizontal - walkSpeed * 0.8f) / (slideSpeed - walkSpeed * 0.8f));
-        if (controlled) Shooting(dt, horizontal > 1f);
+        if (controlled && !briefing) Shooting(dt, horizontal > 1f);
         CameraFeel(dt, input.x, nowGrounded);
     }
 
@@ -371,6 +462,7 @@ public class VRPlayer : VRFighter
         float reloadDip = Reloading ? Mathf.Sin(ReloadProgress * Mathf.PI) * 35f : 0f;
         gunHolder.localPosition = hold + new Vector3(Mathf.Cos(bob) * sway, Mathf.Abs(Mathf.Sin(bob)) * sway - SpeedAmount * 0.03f * (1f - Aim), -kick * 0.06f);
         gunHolder.localRotation = Quaternion.Euler(-kick * 4f + reloadDip + SpeedAmount * 10f * (1f - Aim), SpeedAmount * -18f * (1f - Aim), reloadDip * 0.4f + lean * 2f);
+        if (Scoped) gunHolder.gameObject.SetActive(false);
     }
 
     void ApplyLook(float roll, Vector3 shake = default)
@@ -463,7 +555,8 @@ public class VRPlayer : VRFighter
         var look = Cam.transform;
         Vector3 dir = Quaternion.AngleAxis(Random.Range(-spread, spread), look.up)
                       * Quaternion.AngleAxis(Random.Range(-spread, spread), look.right) * look.forward;
-        recoil = Mathf.Min(recoil + recoilKick * Mathf.Lerp(1f, 0.55f, Aim), 6f);
+        recoil = Mathf.Min(recoil + recoilKick * Mathf.Lerp(1f, 0.55f, Aim), Role == VRRole.Sniper ? 9f : 6f);
+        if (Role == VRRole.Sniper) Shake(0.15f);
         kick = 1f;
         Shake(0.035f);
         muzzleLight.intensity = 3.5f;

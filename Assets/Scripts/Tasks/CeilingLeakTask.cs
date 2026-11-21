@@ -45,6 +45,8 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
     {
         floorPoint = transform.position;
         if (visualRoot) visualRoot.SetActive(false);
+        BucketWater.On(bucket);
+        BucketSink.AddToSinks();
     }
 
     public override bool CanStartNow => tap && !(flood && flood.IsActive);
@@ -61,7 +63,8 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
         {
             if (!IsActive) return null;
             if (bucketPlaced) return "Bucket filling... turn off the tap upstairs";
-            return PlayerHolds(ItemType.Bucket) ? "Put the bucket under the drip" : "Leak - get a bucket";
+            if (PlayerHolds(ItemType.Bucket)) return HeldFull ? "Bucket's full - empty it in a sink" : "Put the bucket under the drip";
+            return "Leak - get a bucket";
         }
     }
 
@@ -79,10 +82,27 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
             return;
         }
 
+        if (HeldFull)
+        {
+            GameHUD.Toast("The bucket's full! Empty it in a sink first.", GameHUD.Warn);
+            return;
+        }
         var held = PlayerCarry.Instance.TakeHeld();
         held.PlaceAt(floorPoint, 0f);
         CatchWithBucket("That'll hold it for a bit. Now turn off the tap!");
     }
+
+    bool HeldFull
+    {
+        get
+        {
+            var carry = PlayerCarry.Instance;
+            var w = carry && carry.IsHolding(ItemType.Bucket) ? BucketWater.On(carry.Held) : null;
+            return w && w.Full;
+        }
+    }
+
+    BucketWater Water => BucketWater.On(bucket);
 
     /// <summary>Called by the LeakTap upstairs.</summary>
     public void TurnOffTap()
@@ -106,20 +126,32 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
         {
             Vector3 d = bucket.transform.position - floorPoint;
             d.y = 0f;
-            if (d.magnitude < 0.5f) CatchWithBucket("Good thing the bucket's still there!");
+            if (d.magnitude < 0.5f && !(Water && Water.Full)) CatchWithBucket("Good thing the bucket's still there!");
         }
     }
 
     void CatchWithBucket(string message)
     {
         bucketPlaced = true;
-        StartDeadline(bucketCapacity);
+        float already = Water ? Water.fill : 0f;
+        StartDeadline(Mathf.Max(1f, bucketCapacity * (1f - already)));
         GameHUD.Toast(message, GameHUD.Good);
     }
 
     protected override void TaskUpdate()
     {
-        if (bucketPlaced) return;
+        if (bucketPlaced)
+        {
+            // The water in the bucket rises as it fills.
+            if (Water) Water.SetFill(1f - TimeLeft / Mathf.Max(1f, bucketCapacity));
+            if (bucket && bucket.IsHeld)
+            {
+                bucketPlaced = false; // picked it back up: dripping on the floor again
+                StartDeadline(Mathf.Max(10f, timeLimit * 0.5f));
+                GameHUD.Toast("It's dripping on the floor again!", GameHUD.Warn);
+            }
+            return;
+        }
 
         if (Stress) Stress.AddStress(stressPerSecond * Time.deltaTime);
         puddleSize = Mathf.MoveTowards(puddleSize, puddleMaxDiameter, puddleMaxDiameter / Mathf.Max(1f, puddleGrowTime) * Time.deltaTime);
@@ -128,6 +160,7 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
 
     protected override void OnDeadlineReached()
     {
+        if (bucketPlaced && Water) Water.SetFill(1f);
         Fail(bucketPlaced ? "The bucket overflowed - it's flooding!" : "The ceiling gave up - it's flooding!");
         if (flood && GameManager.Instance)
         {

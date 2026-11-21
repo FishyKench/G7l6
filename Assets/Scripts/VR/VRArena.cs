@@ -11,13 +11,16 @@ using UnityEngine.AI;
 /// dying, at their team's side of the map (the spawn furthest from the enemy).
 /// The arena also hands out orders to the bots (which point to capture, attack or hold), finds cover spots for
 /// them, lets them hear gunfire, and handles every shot (hits, headshots, tracers, sparks). There's also a warm-up
-/// deathmatch (practice). The match itself (schedule, best of 5) is the MatchTask on your PC in the house.
+/// Domination too (unranked, it just keeps going round after round). Every bot has a class (VRLoadout): each team
+/// is 1 sniper, 3 SMG rushers, 1 LMG anchor and assault riflemen. The match itself (schedule, best of 5) is the
+/// MatchTask on your PC in the house.
 /// </summary>
 public class VRArena : MonoBehaviour
 {
     public static VRArena Instance { get; private set; }
 
-    public enum Mode { Idle, Practice, Fighting }
+    /// <summary>Briefing: the few seconds before a round where you pick your class (everything waits).</summary>
+    public enum Mode { Idle, Practice, Fighting, Briefing }
 
     /// <summary>How the round plays (enemies get better each round).</summary>
     public struct RoundSettings
@@ -37,7 +40,7 @@ public class VRArena : MonoBehaviour
     [Header("Domination")]
     [Tooltip("Points per second for each capture point a team holds.")]
     public float pointsPerFlag = 1.5f;
-    public float botRespawnSeconds = 5f;
+    public float botRespawnSeconds = 4f;
     public float playerRespawnSeconds = 4f;
 
     /// <summary>Team scores this round: [0] = your team, [1] = the enemy.</summary>
@@ -55,6 +58,9 @@ public class VRArena : MonoBehaviour
     static readonly string[] EnemyNames = { "xX_Toaster_Xx", "N00bSlay3r", "GrandmaGamer", "Sweaty_Kev", "LagSwitch", "MrNoScope", "CampLord", "Zer0Chill", "TryHardTina", "Ping999" };
     public const string FriendName = "Jay";
     static readonly string[] AllyNames = { FriendName, "Nova", "Rook", "Pixel", "Echo", "Vex", "Kilo" };
+    // Classes, in the same order as the names (your team has you as the 8th).
+    static readonly VRRole[] AllyRoles = { VRRole.Assault, VRRole.SMG, VRRole.Sniper, VRRole.SMG, VRRole.LMG, VRRole.Assault, VRRole.SMG };
+    static readonly VRRole[] EnemyRoles = { VRRole.Sniper, VRRole.SMG, VRRole.SMG, VRRole.SMG, VRRole.LMG, VRRole.Assault, VRRole.Assault, VRRole.Assault };
     /// <summary>Bots per team in a ranked round (your team: you + one fewer bot).</summary>
     public const int TeamSize = 8;
 
@@ -68,7 +74,12 @@ public class VRArena : MonoBehaviour
     ParticleSystem sparks;
     TMP_FontAsset font;
     Bounds area;
-    float playerRespawnAt = -1f, ordersIn, lastCallout;
+    float playerRespawnAt = -1f, ordersIn, lastCallout, practiceAgainAt = -1f, briefingUntil;
+    Mode afterBriefing;
+    /// <summary>Seconds left to pick a class before the round starts anyway.</summary>
+    public float BriefingLeft => State == Mode.Briefing ? Mathf.Max(0f, briefingUntil - Time.time) : 0f;
+    public const float BriefingSeconds = 10f;
+    readonly List<Vector3>[] perches = { new List<Vector3>(), new List<Vector3>() };
 
     static readonly Dictionary<string, Material> materials = new Dictionary<string, Material>();
 
@@ -95,6 +106,7 @@ public class VRArena : MonoBehaviour
         BakeWalkMap();
         BuildFlags();
         FindCoverSpots();
+        FindPerches();
         // The arena scene can hold a ready-made camera with post effects (bloom, colour) called "VR Camera".
         Camera template = null;
         foreach (var c in GetComponentsInChildren<Camera>(true)) if (c.name == "VR Camera") template = c;
@@ -110,11 +122,69 @@ public class VRArena : MonoBehaviour
 
     public void StartRound(RoundSettings s)
     {
+        SetUpTeams(s);
+        Brief(Mode.Fighting);
+        GiveOrders();
+    }
+
+    /// <summary>
+    /// Warm-up before the ranked match: the same 8v8 Domination on the same map, unranked - bots a bit softer,
+    /// and a new round starts by itself a few seconds after one ends.
+    /// </summary>
+    public void StartPractice()
+    {
+        Player.Kills = 0;
+        SetUpTeams(new RoundSettings
+        {
+            seconds = 90f, scoreLimit = 100f,
+            enemySpread = 2.8f, enemyFireRate = 6f, enemyDamage = 8f, enemyReaction = 0.55f, enemyAimSettle = 1f,
+            allySpread = 2.8f, allyFireRate = 6f, allyDamage = 8f, allyReaction = 0.55f,
+        });
+        Brief(Mode.Practice);
+        GiveOrders();
+    }
+
+    /// <summary>
+    /// Before a round: if you're in the headset, everything waits (up to 10 s) while you pick your class - it
+    /// starts the moment you pick. Not wearing it: the round just starts.
+    /// </summary>
+    void Brief(Mode then)
+    {
+        afterBriefing = then;
+        if (Player && Player.controlled)
+        {
+            State = Mode.Briefing;
+            briefingUntil = Time.time + BriefingSeconds;
+        }
+        else BeginPlay();
+    }
+
+    /// <summary>You picked a class on the cards: spawn with it and go.</summary>
+    public void ConfirmClass(VRRole role)
+    {
+        Player.ChooseRole(role);
+        if (State != Mode.Briefing) return;
+        var s = Spawn(spawnsA, 0, -1);
+        Player.Respawn(s.position, s.rotation);
+        BeginPlay();
+    }
+
+    void BeginPlay()
+    {
+        State = afterBriefing;
+        if (!Hud) return;
+        Hud.Announce("GO!", 1f, AllyColor);
+        Hud.Notice(State == Mode.Practice ? "WARM-UP DOMINATION - CAPTURE A, B AND C" : "DOMINATION - CAPTURE A, B AND C", Color.white);
+    }
+
+    void SetUpTeams(RoundSettings s)
+    {
         ClearBots();
         Score[0] = Score[1] = 0f;
         ScoreLimit = s.scoreLimit > 0f ? s.scoreLimit : 100f;
         foreach (var f in flags) f.ResetFlag();
         playerRespawnAt = -1f;
+        practiceAgainAt = -1f;
         var spawn = Spawn(spawnsA, 0, -1);
         Player.Respawn(spawn.position, spawn.rotation);
 
@@ -122,13 +192,12 @@ public class VRArena : MonoBehaviour
         {
             var b = AddBot(AllyNames[i], 0, AllyColor, Spawn(spawnsA, i + 1, -1));
             bool friend = i == 0; // your friend plays about as well as the enemy
-            b.spread = friend ? s.enemySpread * 1.05f : s.allySpread;
-            b.fireRate = s.allyFireRate;
-            b.damage = friend ? s.enemyDamage : s.allyDamage;
-            b.reactionTime = friend ? s.enemyReaction : s.allyReaction;
-            b.aimSettle = friend ? s.enemyAimSettle : s.enemyAimSettle * 1.3f;
-            b.aggression = friend ? 0.65f : Random.Range(0.3f, 0.7f);
-            b.preferredDistance = Random.Range(11f, 17f);
+            b.ApplyRole(AllyRoles[i % AllyRoles.Length],
+                friend ? s.enemySpread * 1.05f : s.allySpread,
+                s.allyFireRate,
+                friend ? s.enemyDamage : s.allyDamage,
+                friend ? s.enemyReaction : s.allyReaction,
+                friend ? s.enemyAimSettle : s.enemyAimSettle * 1.2f);
         }
         var names = new List<string>(EnemyNames);
         for (int i = 0; i < TeamSize; i++)
@@ -136,61 +205,19 @@ public class VRArena : MonoBehaviour
             int n = Random.Range(0, names.Count);
             var b = AddBot(names[n], 1, EnemyColor, Spawn(spawnsB, i, 1));
             names.RemoveAt(n);
-            b.spread = s.enemySpread;
-            b.fireRate = s.enemyFireRate;
-            b.damage = s.enemyDamage;
-            b.reactionTime = s.enemyReaction;
-            b.aimSettle = s.enemyAimSettle;
-            b.aggression = Random.Range(0.35f, 0.85f);
-            b.preferredDistance = Random.Range(10f, 18f);
+            // The enemy team is the elite one: tighter aim, quicker on the trigger, a bit more damage.
+            b.ApplyRole(EnemyRoles[i % EnemyRoles.Length], s.enemySpread * 0.8f, s.enemyFireRate, s.enemyDamage * 1.1f, s.enemyReaction * 0.8f, s.enemyAimSettle * 0.8f);
         }
+        foreach (var g in VRGrenade.Live.ToArray()) if (g) Destroy(g.gameObject);
         TimeLeft = s.seconds;
-        State = Mode.Fighting;
         ordersIn = 0f;
-        GiveOrders();
     }
-
-    /// <summary>
-    /// Warm-up: a team deathmatch on the ranked map - you and your 7 teammates against 8 bots, everyone respawns.
-    /// The bots roam between the capture points (nothing's scored), so there's always a fight somewhere.
-    /// </summary>
-    public void StartPractice()
-    {
-        ClearBots();
-        var s = Spawn(spawnsA, 0, -1);
-        Player.Respawn(s.position, s.rotation);
-        Player.Kills = 0;
-        foreach (var f in flags) f.ResetFlag();
-        for (int i = 0; i < AllyNames.Length; i++)
-        {
-            var b = AddBot(AllyNames[i], 0, AllyColor, Spawn(spawnsA, i + 1, -1));
-            b.spread = 3f; b.fireRate = 6f; b.damage = 8f; b.reactionTime = 0.55f; b.aimSettle = 1f;
-            b.aggression = Random.Range(0.4f, 0.8f);
-            b.preferredDistance = Random.Range(10f, 18f);
-            if (flags.Count > 0) b.Objective = flags[Random.Range(0, flags.Count)];
-        }
-        var names = new List<string>(EnemyNames);
-        for (int i = 0; i < TeamSize; i++)
-        {
-            int n = Random.Range(0, names.Count);
-            var b = AddBot(names[n], 1, EnemyColor, Spawn(spawnsB, i, 1));
-            names.RemoveAt(n);
-            b.spread = 2.8f; b.fireRate = 6f; b.damage = 8f; b.reactionTime = 0.55f; b.aimSettle = 1f;
-            b.aggression = Random.Range(0.4f, 0.8f);
-            b.preferredDistance = Random.Range(10f, 18f);
-            if (flags.Count > 0) b.Objective = flags[Random.Range(0, flags.Count)];
-        }
-        playerRespawnAt = -1f;
-        practiceShuffle = 0f;
-        State = Mode.Practice;
-    }
-
-    float practiceShuffle;
 
     public void Stop()
     {
         State = Mode.Idle;
         playerRespawnAt = -1f;
+        practiceAgainAt = -1f;
         ClearBots();
     }
 
@@ -281,17 +308,13 @@ public class VRArena : MonoBehaviour
             Player.Respawn(s.position, s.rotation);
         }
 
-        if (State == Mode.Practice && flags.Count > 0)
+        if (State == Mode.Briefing && now >= briefingUntil) BeginPlay();
+        if (practiceAgainAt > 0f && now >= practiceAgainAt)
         {
-            practiceShuffle -= dt;
-            if (practiceShuffle <= 0f)
-            {
-                practiceShuffle = 6f;
-                foreach (var b in bots)
-                    if (b && b.Alive && Random.value < 0.3f) b.Objective = flags[Random.Range(0, flags.Count)];
-            }
+            practiceAgainAt = -1f;
+            if (State == Mode.Idle && Player && Player.controlled) StartPractice();
         }
-        if (State != Mode.Fighting) return;
+        if (State != Mode.Fighting && State != Mode.Practice) return;
         TimeLeft -= dt;
         int[] held = new int[2];
         foreach (var f in flags)
@@ -302,11 +325,23 @@ public class VRArena : MonoBehaviour
         for (int t = 0; t < 2; t++) Score[t] = Mathf.Min(ScoreLimit, Score[t] + held[t] * pointsPerFlag * dt);
 
         ordersIn -= dt;
-        if (ordersIn <= 0f) { ordersIn = 1.2f; GiveOrders(); }
+        if (ordersIn <= 0f) { ordersIn = 2f; GiveOrders(); }
 
         if (Score[0] < ScoreLimit && Score[1] < ScoreLimit && TimeLeft > 0f) return;
         bool tie = Mathf.Abs(Score[0] - Score[1]) < 0.5f;
         bool won = tie ? held[0] > held[1] || (held[0] == held[1] && Random.value < 0.5f) : Score[0] > Score[1];
+        if (State == Mode.Practice)
+        {
+            State = Mode.Idle;
+            playerRespawnAt = -1f;
+            practiceAgainAt = now + 7f;
+            if (Hud)
+            {
+                Hud.Announce(won ? "WARM-UP WON" : "WARM-UP LOST", 2.5f, won ? AllyColor : EnemyColor);
+                Hud.Notice($"{Mathf.FloorToInt(Score[0])} - {Mathf.FloorToInt(Score[1])}   -   next warm-up round in 7s", Color.white);
+            }
+            return;
+        }
         State = Mode.Idle;
         playerRespawnAt = -1f;
         RoundEnded?.Invoke(won);
@@ -343,7 +378,7 @@ public class VRArena : MonoBehaviour
 
     void OnFlagChanged(VRFlag flag, int owner, int old)
     {
-        if (State != Mode.Fighting || !Hud) return;
+        if ((State != Mode.Fighting && State != Mode.Practice) || !Hud) return;
         string l = flag.letter;
         if (owner == 0) { Hud.Notice($"{l} CAPTURED", AllyColor); Callout(owner, flag); }
         else if (owner == 1) { Hud.Notice($"ENEMY CAPTURED {l}", EnemyColor); Callout(owner, flag); }
@@ -363,45 +398,116 @@ public class VRArena : MonoBehaviour
     }
 
     /// <summary>
-    /// Hands out orders: which capture point each bot goes for. Points the team doesn't have (or is losing) are
-    /// worth more; nearer is better; the same point gets less useful the more bots already go there; bots keep
-    /// their order unless another is clearly better. Aggressive bots go deeper. You count for your team.
+    /// The team commander (one per team, every 2 s). It reads the game - who holds what, the score, the clock - and
+    /// makes a plan, then hands every bot a job that suits its class:
+    ///   - a point of ours under attack gets reinforcements first,
+    ///   - the main attack goes for the best point we don't have (the middle first, then our home point, then theirs),
+    ///     a smaller squad keeps pressure on a second point, and points we hold keep a defender or two,
+    ///   - losing late in the round: everyone goes for one point,
+    ///   - rushers (SMG) take the attack jobs and go round the side lanes (north / south), riflemen take the middle
+    ///     lane, LMGs take the defending jobs, snipers watch the middle from their perches.
+    /// Attackers gather at a staging spot near the point and storm it together (with a flash) - see VRBot.
     /// </summary>
     void GiveOrders()
     {
         if (flags.Count == 0) return;
         for (int team = 0; team < 2; team++)
         {
-            var counts = new int[flags.Count];
-            if (team == 0 && Player && Player.Alive && Player.controlled)
-                for (int i = 0; i < flags.Count; i++)
-                    if (Vector3.Distance(Player.transform.position, flags[i].Position) < flags[i].radius + 10f) counts[i]++;
+            int enemy = 1 - team;
+            var squad = bots.FindAll(b => b && b.Alive && b.team == team && b.Role != VRRole.Sniper);
+            foreach (var s in bots) if (s && s.Alive && s.team == team && s.Role == VRRole.Sniper) s.Objective = flags[flags.Count / 2];
+            if (squad.Count == 0) continue;
 
-            int held = 0;
-            foreach (var f in flags) if (f.Owner == team) held++;
-            var free = bots.FindAll(b => b && b.Alive && b.team == team);
-            free.Sort((a, b) => a.aggression.CompareTo(b.aggression)); // careful bots pick first (they defend)
-            foreach (var bot in free)
+            Vector3 home = Centre(team == 0 ? spawnsA : spawnsB);
+            var byDistance = new List<VRFlag>(flags);
+            byDistance.Sort((a, b) => Vector3.Distance(a.Position, home).CompareTo(Vector3.Distance(b.Position, home)));
+            VRFlag homeFlag = byDistance[0], farFlag = byDistance[byDistance.Count - 1];
+            VRFlag mid = flags.Count >= 3 ? byDistance[1] : homeFlag;
+
+            var targets = new List<VRFlag>();
+            foreach (var f in new[] { mid, homeFlag, farFlag }) if (f.Owner != team && !targets.Contains(f)) targets.Add(f);
+            bool Threatened(VRFlag f) => f.Owner == team && (f.Inside[enemy] > 0 || (f.Capturer == enemy && f.Progress > 0f));
+            bool lateAndLosing = TimeLeft < 25f && Score[team] < Score[enemy];
+
+            // One entry per bot: (point, attacking?). In priority order.
+            var jobs = new List<(VRFlag flag, bool attack)>();
+            void Add(VRFlag f, int n, bool attack) { for (int i = 0; i < n; i++) jobs.Add((f, attack)); }
+            foreach (var f in flags) if (Threatened(f)) Add(f, f == mid ? 4 : 2, false);
+            VRFlag primary = targets.Count > 0 ? targets[0] : null;
+            // B (the middle) is the point that wins games: most of the team goes for it whenever it isn't ours.
+            int forPrimary = primary == mid ? Mathf.Max(4, Mathf.CeilToInt(squad.Count * 0.6f)) : targets.Count == 1 ? 4 : 3;
+            if (primary) Add(primary, lateAndLosing ? squad.Count : forPrimary, true);
+            if (targets.Count > 1 && !lateAndLosing) Add(targets[1], 2, true);
+            foreach (var f in flags) if (f.Owner == team && !Threatened(f)) Add(f, f == mid ? 3 : 1, false);
+            while (jobs.Count < squad.Count) Add(primary ? primary : mid, 1, primary);
+
+            // Hand the jobs out: rushers pick attacks first, LMGs defence, then everyone else; near and steady wins.
+            var order = new List<VRBot>();
+            order.AddRange(squad.FindAll(b => b.Role == VRRole.SMG));
+            order.AddRange(squad.FindAll(b => b.Role == VRRole.LMG));
+            order.AddRange(squad.FindAll(b => b.Role != VRRole.SMG && b.Role != VRRole.LMG));
+            jobs.RemoveRange(Mathf.Min(jobs.Count, squad.Count + 4), Mathf.Max(0, jobs.Count - squad.Count - 4));
+            var laneCount = new Dictionary<VRFlag, int>();
+            foreach (var bot in order)
             {
-                int best = 0;
-                float bestValue = float.MinValue;
-                for (int i = 0; i < flags.Count; i++)
+                int best = -1;
+                float bestCost = float.MaxValue;
+                for (int i = 0; i < jobs.Count; i++)
                 {
-                    var f = flags[i];
-                    float value;
-                    bool threatened = f.Owner == team && (f.Inside[1 - team] > 0 || (f.Capturer == 1 - team && f.Progress > 0f));
-                    if (f.Owner == team) value = threatened ? 2.2f : (counts[i] == 0 ? 1.1f : 0.25f);
-                    else if (f.Owner < 0) value = 1.7f + (i == flags.Count / 2 ? 0.3f : 0f);
-                    else value = held >= 2 ? 0.7f + bot.aggression * 0.6f : 1.4f + bot.aggression * 0.3f;
-                    value -= Vector3.Distance(bot.transform.position, f.Position) / 30f;
-                    value -= counts[i] * 0.5f;
-                    if (bot.Objective == f) value += 0.35f;
-                    if (value > bestValue) { bestValue = value; best = i; }
+                    var (f, attack) = jobs[i];
+                    float cost = i * 0.6f + Vector3.Distance(bot.transform.position, f.Position) / 12f;
+                    if (bot.Role == VRRole.SMG && !attack) cost += 6f;
+                    if (bot.Role == VRRole.LMG && attack) cost += 4f;
+                    if (bot.Objective == f) cost -= 2.5f; // keep doing what it was doing
+                    if (cost < bestCost) { bestCost = cost; best = i; }
                 }
-                bot.Objective = flags[best];
-                counts[best]++;
+                if (best < 0) break;
+                var job = jobs[best];
+                jobs.RemoveAt(best);
+                bool changed = bot.Objective != job.flag;
+                bot.Objective = job.flag;
+                if (job.attack)
+                {
+                    // Attackers spread over the lanes: rushers round the sides, riflemen up the middle.
+                    laneCount.TryGetValue(job.flag, out int k);
+                    laneCount[job.flag] = k + 1;
+                    int lane = bot.Role == VRRole.SMG ? (k % 2 == 0 ? 1 : -1) : (k % 3 == 2 ? (Random.value < 0.5f ? 1 : -1) : 0);
+                    if (changed || bot.Lane == 0 && lane != 0 && bot.Role == VRRole.SMG) bot.Lane = lane;
+                }
+                else bot.Lane = 0;
+            }
+
+            if (team == 0 && Hud && primary && primary != lastPlan && Time.time - lastPlanCall > 8f)
+            {
+                lastPlan = primary;
+                lastPlanCall = Time.time;
+                string[] calls = { $"everyone on {primary.letter}, group up then push", $"{primary.letter} next - flank it from the sides", $"lets take {primary.letter}, I'll flash" };
+                Hud.Chat(FriendName, calls[Random.Range(0, calls.Length)]);
             }
         }
+    }
+
+    VRFlag lastPlan;
+    float lastPlanCall = -10f;
+
+    /// <summary>The middle of a side lane (north +1 / south -1) as a z position; 0 = the main street.</summary>
+    public float LaneZ(int lane)
+    {
+        float mid = flags.Count > 0 ? flags[flags.Count / 2].Position.z : area.center.z;
+        return mid + lane * Mathf.Min(27f, area.extents.z * 0.6f);
+    }
+
+    /// <summary>Enough teammates near this bot heading for the same point to storm it together?</summary>
+    public bool SquadReady(VRBot bot, VRFlag flag)
+    {
+        int n = 0;
+        foreach (var f in VRFighter.All)
+        {
+            if (!f || f == bot || !f.Alive || f.team != bot.team) continue;
+            bool sameJob = f is VRBot b ? b.Objective == flag : true;
+            if (sameJob && Vector3.Distance(f.transform.position, bot.transform.position) < 18f) n++;
+        }
+        return n >= 2;
     }
 
     /// <summary>Which way the enemy of 'team' will come from, seen from a point (towards their side of the map).</summary>
@@ -441,6 +547,58 @@ public class VRArena : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Sniper perches for each team: cover spots on their own half, 24-55 m from the middle point, with a clear
+    /// view of it. Spread out so snipers have a few to move between.
+    /// </summary>
+    void FindPerches()
+    {
+        if (flags.Count == 0) return;
+        Vector3 mid = flags[flags.Count / 2].Position + Vector3.up * 1.2f;
+        for (int team = 0; team < 2; team++)
+        {
+            perches[team].Clear();
+            Vector3 own = Centre(team == 0 ? spawnsA : spawnsB), enemy = Centre(team == 0 ? spawnsB : spawnsA);
+            var candidates = new List<Vector3>();
+            foreach (var c in coverSpots)
+            {
+                if (Vector3.Distance(c, own) > Vector3.Distance(c, enemy)) continue;
+                float d = Vector3.Distance(c, mid);
+                if (d < 24f || d > 55f || Blocked(c + Vector3.up * 1.4f, mid)) continue;
+                candidates.Add(c);
+            }
+            candidates.Sort((a, b) => Vector3.Distance(b, mid).CompareTo(Vector3.Distance(a, mid)));
+            foreach (var c in candidates)
+            {
+                if (perches[team].Exists(p => Vector3.Distance(p, c) < 7f)) continue;
+                perches[team].Add(c);
+                if (perches[team].Count >= 8) break;
+            }
+        }
+    }
+
+    static Vector3 Centre(List<Transform> list)
+    {
+        if (list.Count == 0) return Vector3.zero;
+        Vector3 sum = Vector3.zero;
+        foreach (var t in list) sum += t.position;
+        return sum / list.Count;
+    }
+
+    /// <summary>A sniper perch for this team, away from 'avoid' (the one it's leaving).</summary>
+    public bool Perch(int team, Vector3 avoid, out Vector3 spot)
+    {
+        spot = default;
+        var list = perches[Mathf.Clamp(team, 0, 1)];
+        if (list.Count == 0) return false;
+        for (int i = 0; i < 6; i++)
+        {
+            spot = list[Random.Range(0, list.Count)];
+            if (Vector3.Distance(spot, avoid) > 3f) return true;
+        }
+        return true;
+    }
+
     /// <summary>The nearest spot within 'maxDistance' of 'near' that a shooter at 'threat' can't hit.</summary>
     public bool FindCover(Vector3 near, Vector3 threat, float maxDistance, out Vector3 spot)
     {
@@ -461,6 +619,9 @@ public class VRArena : MonoBehaviour
     }
 
     static readonly RaycastHit[] blockHits = new RaycastHit[16];
+
+    /// <summary>Is something solid (not a fighter) between a and b?</summary>
+    public static bool LineBlocked(Vector3 a, Vector3 b) => Blocked(a, b);
 
     static bool Blocked(Vector3 from, Vector3 to)
     {
@@ -488,8 +649,9 @@ public class VRArena : MonoBehaviour
             if (f != null)
             {
                 if (f.team == shooter.team || !f.Alive) break; // a teammate's in the way: the shot stops there
-                bool head = hit.collider.name == "Head";
-                float multiplier = head ? (shooter is VRPlayer p ? p.headshotMultiplier : 1.5f) : 1f;
+                bool head = hit.collider.name == "Head" || (f is VRPlayer victim && victim.IsHead(hit.point));
+                bool sniper = shooter is VRBot sb && sb.Role == VRRole.Sniper;
+                float multiplier = head ? (shooter is VRPlayer p ? p.headshotMultiplier : sniper ? 2f : 1.5f) : 1f;
                 f.TakeDamage(damage * multiplier, shooter, head);
                 if (shooter is VRPlayer me)
                 {
@@ -514,9 +676,11 @@ public class VRArena : MonoBehaviour
             if (victim is VRBot b) respawns.Add((b, Time.time + (State == Mode.Fighting ? botRespawnSeconds : 3f)));
             if (victim is VRPlayer) playerRespawnAt = Time.time + (State == Mode.Fighting ? playerRespawnSeconds : 2.5f);
         }
+        if (killer is VRBot sniper && sniper.Role == VRRole.Sniper) sniper.MovePerch();
         if (killer is VRPlayer me && Hud)
         {
             int streak = me.RegisterKill();
+            if (streak == 3 || streak == 5) SendHunters(me);
             string call = streak switch { 2 => "DOUBLE KILL", 3 => "TRIPLE KILL", 4 => "QUAD KILL", _ => streak >= 5 ? "UNSTOPPABLE" : null };
             if (call != null) Hud.Announce(call, 1.3f, new Color(1f, 0.82f, 0.3f));
             else if (head) Hud.Pop("HEADSHOT");
@@ -527,6 +691,19 @@ public class VRArena : MonoBehaviour
             Hud.Chat(AllyNames[Random.Range(0, AllyNames.Length)], Random.value < 0.5f ? "nice shot" : head ? "HEADSHOT lol" : "W");
         if (Hud && victim is VRPlayer && Random.value < 0.6f)
             Hud.Chat(FriendName, Random.value < 0.5f ? "unlucky" : $"{(killer ? killer.fighterName : "they")} is cracked fr");
+    }
+
+    /// <summary>You're on a streak: the two nearest enemy rushers/riflemen come after you for 20 s.</summary>
+    void SendHunters(VRPlayer me)
+    {
+        var hunters = bots.FindAll(b => b && b.Alive && b.team != me.team && (b.Role == VRRole.SMG || b.Role == VRRole.Assault));
+        hunters.Sort((a, b) => Vector3.Distance(a.transform.position, me.transform.position).CompareTo(Vector3.Distance(b.transform.position, me.transform.position)));
+        for (int i = 0; i < Mathf.Min(2, hunters.Count); i++)
+        {
+            hunters[i].Hunt = me;
+            hunters[i].HuntUntil = Time.time + 20f;
+        }
+        if (hunters.Count > 0 && Hud) Hud.Notice("THEY'RE HUNTING YOU", EnemyColor);
     }
 
     void Tracer(Vector3 from, Vector3 to, Color color)

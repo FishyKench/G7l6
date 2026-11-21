@@ -121,7 +121,16 @@ public static class Fx
         return src;
     }
 
-    static AudioClip click, tvOff, swish, spray, sizzle;
+    static AudioClip click, tvOff, swish, spray, sizzle, boom, thud;
+
+    /// <summary>A door closing: a short wooden knock.</summary>
+    public static AudioClip Thud => thud ? thud : thud = Make("thud", 0.25f, (t, white, low) =>
+        Mathf.Sin(t * Mathf.PI * 2f * (95f - 40f * t)) * Mathf.Exp(-t * 22f) * 0.9f + low * Mathf.Exp(-t * 45f) * 0.5f, 0.1f);
+
+    /// <summary>An explosion: a deep thump and a rumble.</summary>
+    public static AudioClip Boom => boom ? boom : boom = Make("boom", 1.4f, (t, white, low) =>
+        low * Mathf.Exp(-t * 3.2f) * 1.1f + Mathf.Sin(t * Mathf.PI * 2f * (70f - 30f * t)) * Mathf.Exp(-t * 6f) * 0.9f
+        + white * Mathf.Exp(-t * 40f) * 0.5f, 0.06f);
 
     /// <summary>A plastic button click.</summary>
     public static AudioClip Click => click ? click : click = Make("click", 0.06f, (t, white, low) =>

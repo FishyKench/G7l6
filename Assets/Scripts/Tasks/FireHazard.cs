@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 /// <summary>
 /// Fire (e.g. from a forgotten oven). It breaks out in a few spots and spreads to new ones if you leave it.
@@ -37,7 +38,14 @@ public class FireHazard : HazardTask
         public float heat = 1f, baseRate;
         public Vector3 baseScale;
         public bool original, hit;
+        public Light light;
+        public RectTransform marker, arrow;
+        public Image ring, fill;
+        public float bornAt;
     }
+
+    Canvas markers;
+    static Sprite ringSprite, dotSprite, arrowSprite;
 
     readonly List<Flame> burning = new List<Flame>();
     float baseEmission = -1f;
@@ -112,7 +120,9 @@ public class FireHazard : HazardTask
             if (flamesScale == Vector3.zero) flamesScale = flames.transform.localScale;
             flames.transform.localScale = flamesScale;
             flames.Play();
-            burning.Add(new Flame { t = flames.transform, ps = flames, baseRate = baseEmission, baseScale = flames.transform.localScale, original = true });
+            var first = new Flame { t = flames.transform, ps = flames, baseRate = baseEmission, baseScale = flames.transform.localScale, original = true };
+            burning.Add(first);
+            Dress(first);
             for (int i = 0; i < extraFlames; i++) SpreadFlame(false);
         }
         if (fireLight) fireLight.enabled = true;
@@ -145,6 +155,7 @@ public class FireHazard : HazardTask
             heat += f.heat;
             Look(f);
         }
+        UpdateMarkers(cam);
 
         if (fireLight)
             fireLight.intensity = lightIntensity * Mathf.Clamp01(heat / 2f + 0.2f) * (0.75f + 0.5f * Mathf.PerlinNoise(Time.time * 8f, 0.3f));
@@ -202,6 +213,7 @@ public class FireHazard : HazardTask
             f.ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
         }
         Fx.Puff(f.t.position + Vector3.up * 0.2f * Scale, new Color(0.55f, 0.55f, 0.58f, 0.6f), 14, Scale);
+        Undress(f);
         Fx.Play(Fx.Sizzle, f.t.position, 0.7f, Random.Range(0.9f, 1.15f));
         int left = Alive;
         if (left > 0) GameHUD.Toast(left == 1 ? "One more flame!" : $"{left} flames left", GameHUD.Info);
@@ -239,9 +251,143 @@ public class FireHazard : HazardTask
             var f = new Flame { t = go.transform, ps = ps, baseRate = baseEmission * 0.7f, baseScale = go.transform.localScale, heat = announce ? 0.6f : 1f };
             if (ps) { var e = ps.emission; e.rateOverTimeMultiplier = f.baseRate; ps.Play(); }
             burning.Add(f);
+            Dress(f);
+            if (announce)
+            {
+                // Make the new one impossible to miss: a burst of sparks and a whoosh.
+                Fx.Puff(hit.point + Vector3.up * 0.2f * s, new Color(1f, 0.55f, 0.15f, 0.9f), 18, s);
+                Fx.Play(Fx.Swish, hit.point, 0.8f, 0.6f);
+            }
             return true;
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------ seeing where it burns
+
+    /// <summary>A flickering orange light on the flame and a marker on screen that follows it (or points to it).</summary>
+    void Dress(Flame f)
+    {
+        f.bornAt = Time.time;
+        float s = Scale;
+        if (!f.light)
+        {
+            f.light = new GameObject("Flame glow").AddComponent<Light>();
+            f.light.transform.SetParent(f.t, false);
+            f.light.transform.position = f.t.position + Vector3.up * 0.35f * s;
+            f.light.type = LightType.Point;
+            f.light.color = new Color(1f, 0.5f, 0.15f);
+            f.light.range = 3.2f * s;
+            f.light.shadows = LightShadows.None;
+        }
+        f.light.enabled = true;
+
+        if (!markers)
+        {
+            markers = UIFactory.CreateCanvas("Fire markers", 30);
+            markers.transform.SetParent(transform, false);
+        }
+        if (!f.marker)
+        {
+            f.marker = UIFactory.Rect("Flame marker", markers.transform);
+            f.marker.anchorMin = f.marker.anchorMax = new Vector2(0.5f, 0.5f);
+            f.marker.sizeDelta = new Vector2(64, 64);
+            f.ring = Pic(f.marker, "Ring", RingSprite(), new Vector2(64, 64));
+            Pic(f.marker, "Core", DotSprite(), new Vector2(22, 22)).color = new Color(1f, 0.85f, 0.4f, 0.95f);
+            var bar = Pic(f.marker, "Heat bg", null, new Vector2(48, 6));
+            bar.rectTransform.anchoredPosition = new Vector2(0f, -42f);
+            bar.color = new Color(0f, 0f, 0f, 0.55f);
+            f.fill = Pic(bar.rectTransform, "Heat", null, Vector2.zero);
+            f.fill.rectTransform.anchorMin = Vector2.zero;
+            f.fill.rectTransform.anchorMax = Vector2.one;
+            f.fill.rectTransform.offsetMin = f.fill.rectTransform.offsetMax = Vector2.zero;
+            var arrow = Pic(f.marker, "Arrow", ArrowSprite(), new Vector2(26, 26));
+            f.arrow = arrow.rectTransform;
+        }
+        f.marker.gameObject.SetActive(true);
+    }
+
+    void Undress(Flame f)
+    {
+        if (f.light) f.light.enabled = false;
+        if (f.marker) f.marker.gameObject.SetActive(false);
+    }
+
+    void UpdateMarkers(Camera cam)
+    {
+        if (!markers || !cam) return;
+        var canvasRect = (RectTransform)markers.transform;
+        Vector2 half = canvasRect.rect.size * 0.5f;
+        const float edge = 60f;
+        foreach (var f in burning)
+        {
+            if (f.heat <= 0f || !f.marker) continue;
+            float flicker = 0.75f + 0.5f * Mathf.PerlinNoise(Time.time * 9f, f.bornAt);
+            if (f.light) f.light.intensity = (0.6f + 1.6f * f.heat) * flicker;
+
+            Vector3 world = f.t.position + Vector3.up * 0.3f * Scale;
+            Vector3 sp = cam.WorldToScreenPoint(world);
+            bool behind = sp.z < 0f;
+            if (behind) sp = -sp;
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, sp, null, out Vector2 local);
+            bool off = behind || Mathf.Abs(local.x) > half.x - edge || Mathf.Abs(local.y) > half.y - edge;
+            if (off)
+            {
+                // Pin it to the screen edge, pointing towards the flame.
+                Vector2 dir = local.sqrMagnitude > 1f ? local.normalized : Vector2.down;
+                float k = Mathf.Min((half.x - edge) / Mathf.Max(0.001f, Mathf.Abs(dir.x)), (half.y - edge) / Mathf.Max(0.001f, Mathf.Abs(dir.y)));
+                local = dir * k;
+                f.arrow.gameObject.SetActive(true);
+                f.arrow.anchoredPosition = dir * 40f;
+                f.arrow.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg - 90f);
+            }
+            else f.arrow.gameObject.SetActive(false);
+            f.marker.anchoredPosition = local;
+
+            // A new flame pulses big for a moment; one you're hitting turns white.
+            float age = Time.time - f.bornAt;
+            float pulse = age < 1.2f ? 1f + 0.7f * (1f - age / 1.2f) * Mathf.Abs(Mathf.Sin(age * 9f)) : 1f + 0.06f * Mathf.Sin(Time.time * 5f);
+            f.marker.localScale = Vector3.one * pulse * (off ? 0.8f : 1f);
+            Color c = f.hit ? new Color(0.85f, 0.95f, 1f) : Color.Lerp(new Color(1f, 0.75f, 0.2f), new Color(1f, 0.25f, 0.1f), f.heat);
+            f.ring.color = new Color(c.r, c.g, c.b, 0.95f);
+            f.fill.color = c;
+            f.fill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(f.heat), 1f);
+            f.ring.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -Time.time * (f.hit ? 360f : 60f));
+        }
+    }
+
+    static Image Pic(Transform parent, string name, Sprite sprite, Vector2 size)
+    {
+        var rt = UIFactory.Rect(name, parent);
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = size;
+        var img = rt.gameObject.AddComponent<Image>();
+        img.sprite = sprite;
+        img.raycastTarget = false;
+        return img;
+    }
+
+    /// <summary>A dashed ring (it spins, so you see it from the corner of your eye).</summary>
+    static Sprite RingSprite() => ringSprite ? ringSprite : ringSprite = MakeSprite(64, (x, y, r, a) =>
+        Mathf.Clamp01(1.5f - Mathf.Abs(r - 27f)) * (Mathf.Repeat(a, 45f) < 30f ? 1f : 0f));
+    static Sprite DotSprite() => dotSprite ? dotSprite : dotSprite = MakeSprite(32, (x, y, r, a) => Mathf.Clamp01(15f - r));
+    static Sprite ArrowSprite() => arrowSprite ? arrowSprite : arrowSprite = MakeSprite(32, (x, y, r, a) =>
+        y > 4f && y < 28f && Mathf.Abs(x - 16f) < (28f - y) * 0.55f ? 1f : 0f);
+
+    static Sprite MakeSprite(int size, System.Func<float, float, float, float, float> alpha)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = x + 0.5f - size * 0.5f, dy = y + 0.5f - size * 0.5f;
+            float r = Mathf.Sqrt(dx * dx + dy * dy), a = (Mathf.Atan2(dy, dx) * Mathf.Rad2Deg + 360f) % 360f;
+            px[y * size + x] = new Color32(255, 255, 255, (byte)(Mathf.Clamp01(alpha(x + 0.5f, y + 0.5f, r, a)) * 255f));
+        }
+        tex.SetPixels32(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
     }
 
     // ------------------------------------------------------------------ the extinguisher
@@ -319,6 +465,7 @@ public class FireHazard : HazardTask
 
     void ClearFlames()
     {
+        foreach (var f in burning) Undress(f);
         foreach (var f in burning)
             if (!f.original && f.t) Destroy(f.t.gameObject);
         burning.Clear();
@@ -340,6 +487,7 @@ public class FireHazard : HazardTask
 
     void OnDestroy()
     {
+        if (markers) Destroy(markers.gameObject);
         if (spray) Destroy(spray.gameObject);
         if (sprayHiss) Destroy(sprayHiss.gameObject);
     }

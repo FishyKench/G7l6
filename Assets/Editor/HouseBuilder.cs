@@ -1104,7 +1104,7 @@ public static class HouseBuilder
 
     // ------------------------------------------------------------------ your room (redone on its own, without rebuilding the house)
 
-    const string PlayerRoomName = "Your bedroom";
+    public const string PlayerRoomName = "Your bedroom";
     static readonly HashSet<string> WindowDressingNames = new HashSet<string> { "Curtains (Open Side)", "Blinds (Open)", "Curtain rod", "Rod end" };
 
     /// <summary>

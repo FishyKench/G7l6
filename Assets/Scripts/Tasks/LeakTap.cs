@@ -7,7 +7,15 @@ public class LeakTap : MonoBehaviour, IInteractable, IPromptProvider
     [Tooltip("Water stream shown while the tap is running.")]
     public ParticleSystem runningWater;
 
-    public string Prompt => leak && leak.IsActive ? "Turn off the tap" : null;
+    public string Prompt
+    {
+        get
+        {
+            if (leak && leak.IsActive) return "Turn off the tap";
+            var b = BucketSink.HeldBucket;
+            return b && b.HasWater && !b.Pouring ? "Empty the bucket in the sink" : null;
+        }
+    }
 
     /// <summary>Where the water comes from (middle of the sink). The leak drips straight down from here.</summary>
     public Vector3 WaterOrigin
@@ -29,7 +37,8 @@ public class LeakTap : MonoBehaviour, IInteractable, IPromptProvider
 
     public void Interact()
     {
-        if (leak) leak.TurnOffTap();
+        if (leak && leak.IsActive) { leak.TurnOffTap(); return; }
+        BucketSink.Empty(transform);
     }
 
     public void SetRunning(bool on)

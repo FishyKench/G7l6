@@ -235,7 +235,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
         crouch = Mathf.MoveTowards(crouch, crouchTarget, dt * 4f);
         loaf = Mathf.MoveTowards(loaf, loafTarget, dt * 1.5f);
-        purr = Mathf.MoveTowards(purr, mood == Mood.Purring ? 1f : 0f, dt * 3f);
+        purr = Mathf.MoveTowards(purr, mood == Mood.Purring ? 1f : 0f, dt * 1.2f);
 
         if (Time.time > nextWord)
         {
@@ -262,13 +262,28 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             bodyTweak.Begin(bodyBone);
             if (hop > 0f) bodyBone.position += Vector3.up * hop * s;
             if (Mathf.Abs(wiggle) > 0.01f)
-                bodyBone.rotation = Quaternion.AngleAxis(wiggle, transform.up) * bodyBone.rotation;
+            {
+                // Only the back end sways: turn round a point up by the shoulders, so the head stays on target.
+                Vector3 pivot = headBone ? headBone.position : bodyBone.position + transform.forward * 0.3f * s;
+                pivot.y = bodyBone.position.y;
+                var turn = Quaternion.AngleAxis(wiggle, transform.up);
+                bodyBone.position = pivot + turn * (bodyBone.position - pivot);
+                bodyBone.rotation = turn * bodyBone.rotation;
+            }
+            float breathe = 0f;
             if (purr > 0.01f)
-                bodyBone.rotation = Quaternion.Euler(Random.insideUnitSphere * 1.2f * purr) * bodyBone.rotation;
+            {
+                // Content, slow breathing and a gentle lean side to side - no shaking.
+                float tm = Time.time;
+                breathe = Mathf.Sin(tm * 2.4f) * 0.035f * purr;
+                bodyBone.rotation = Quaternion.AngleAxis(Mathf.Sin(tm * 0.9f) * 2.5f * purr, transform.forward) * bodyBone.rotation;
+            }
 
             // Squash around the feet (the Root bone sits on the floor) - never through it.
             Vector3 shape = Vector3.Scale(Vector3.Lerp(Vector3.one, CrouchShape, crouch), Vector3.Lerp(Vector3.one, LoafShape, loaf));
             shape = Vector3.Scale(shape, jumpShape);
+            shape.y *= 1f + breathe;
+            shape.x *= 1f + breathe * 0.6f;
             bodyBone.localScale = Vector3.Scale(bodyRestScale, shape);
             bodyTweak.End(bodyBone);
         }
@@ -290,6 +305,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             }
             if (loaf > 0.01f && mood == Mood.Napping) // tuck the head down when napping
                 headBone.rotation = Quaternion.AngleAxis(loaf * 25f, transform.right) * headBone.rotation;
+            if (purr > 0.01f) // slow, happy head rub
+                headBone.rotation = Quaternion.AngleAxis(Mathf.Sin(Time.time * 1.3f) * 9f * purr, transform.forward)
+                                  * Quaternion.AngleAxis(8f * purr, transform.right) * headBone.rotation;
             headTweak.End(headBone);
         }
 
@@ -593,12 +611,15 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         yield return Face(item.transform.position, 0.4f);
 
         // ...butt wiggle...
-        for (float t = 0f; t < 0.8f; t += Time.deltaTime)
+        const float wiggleTime = 1.3f;
+        for (float t = 0f; t < wiggleTime; t += Time.deltaTime)
         {
-            wiggle = Mathf.Sin(t * 38f) * 10f;
+            float build = Mathf.SmoothStep(0f, 1f, t / 0.5f) * Mathf.SmoothStep(1f, 0f, (t - wiggleTime + 0.3f) / 0.3f);
+            wiggle = Mathf.Sin(t * 10f) * 7f * build;
             yield return null;
         }
         wiggle = 0f;
+        yield return new WaitForSeconds(0.2f); // the still beat right before the pounce
         if (!Available(item)) { crouchTarget = 0f; yield break; }
 
         // ...POUNCE (or jump up at it from below), then bat it around.
@@ -748,7 +769,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         nextPet = Time.time + petCooldown;
         if (StressManager.Instance) StressManager.Instance.RemoveStress(petStressRelief);
         GameHUD.Toast($"{catName} purrs. You feel a bit calmer.", GameHUD.Good);
-        yield return new WaitForSeconds(3f);
+        loafTarget = 0.35f;
+        yield return new WaitForSeconds(3.5f);
+        loafTarget = 0f;
         mood = Mood.Idle;
     }
 

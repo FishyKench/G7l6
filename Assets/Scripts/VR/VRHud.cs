@@ -48,6 +48,28 @@ public class VRHud : MonoBehaviour
     Image ourFill, theirFill, capFill;
     RectTransform capBar;
     float noticeUntil;
+    // Classes, grenades, scope, flashbang
+    TextMeshProUGUI classText, pickText, nadeText, pickTitle;
+    RectTransform cardsRoot;
+    readonly List<(RectTransform root, Image frame, Image glow, TextMeshProUGUI name)> cards = new List<(RectTransform, Image, Image, TextMeshProUGUI)>();
+    readonly List<(Image icon, TextMeshProUGUI count, Image slot)> gear = new List<(Image, TextMeshProUGUI, Image)>();
+    static Sprite rounded;
+
+    // How each class rates (0..1): damage, fire rate, range, mobility - for the class cards.
+    static readonly float[][] Ratings =
+    {
+        new[] { 0.6f, 0.6f, 0.65f, 0.6f },   // Assault
+        new[] { 0.4f, 0.95f, 0.3f, 0.9f },   // SMG
+        new[] { 1f, 0.12f, 1f, 0.45f },      // Sniper
+        new[] { 0.65f, 0.78f, 0.7f, 0.3f },  // LMG
+    };
+    static readonly Color[] ClassColours =
+    {
+        new Color32(90, 240, 220, 255), new Color32(255, 200, 60, 255), new Color32(255, 85, 95, 255), new Color32(170, 120, 255, 255),
+    };
+    RectTransform scopeRoot, scopeLens, scopeLeft, scopeRight, nadeMark;
+    Image flashCover;
+    static Sprite lens;
     static Sprite round, vignette;
 
     void Start()
@@ -215,8 +237,6 @@ public class VRHud : MonoBehaviour
         chatRoot = UIFactory.Rect("Chat", root);
         UIFactory.Place(chatRoot, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(40, 230), new Vector2(520, 150));
 
-        Text(root, "WASD move  -  SHIFT sprint  -  CTRL slide  -  SPACE jump / vault  -  RIGHT CLICK aim  -  CLICK shoot  -  R reload  -  ESC headset off  -  P pause",
-            16, new Color(1f, 1f, 1f, 0.45f), TextAlignmentOptions.Center, new Vector2(0, 14), new Vector2(1500, 24), bottom: true);
 
         cover = UIFactory.Panel("Fade", root, Color.black);
         UIFactory.Fill(cover.rectTransform);
@@ -289,11 +309,299 @@ public class VRHud : MonoBehaviour
 
         notice = Text(domRoot, "", 36, Color.white, TextAlignmentOptions.Center, new Vector2(0, 230), new Vector2(900, 50));
         notice.fontStyle = FontStyles.Bold;
+        BuildClassesAndGear(root);
+    }
+
+    void BuildClassesAndGear(RectTransform root)
+    {
+        // Sniper scope: a round lens with black all round it and thin cross-hairs.
+        scopeRoot = UIFactory.Rect("Scope", root);
+        UIFactory.Fill(scopeRoot);
+        scopeLens = UIFactory.Rect("Lens", scopeRoot);
+        UIFactory.Place(scopeLens, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1080, 1080));
+        var ring = UIFactory.Panel("Ring", scopeLens, Color.black);
+        ring.sprite = Lens();
+        UIFactory.Fill(ring.rectTransform);
+        var h = UIFactory.Panel("Cross H", scopeLens, new Color(0f, 0f, 0f, 0.85f));
+        UIFactory.Place(h.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1000, 2));
+        var v = UIFactory.Panel("Cross V", scopeLens, new Color(0f, 0f, 0f, 0.85f));
+        UIFactory.Place(v.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(2, 1000));
+        var dot = UIFactory.Panel("Dot", scopeLens, new Color(1f, 0.2f, 0.2f, 0.9f));
+        dot.sprite = Round();
+        UIFactory.Place(dot.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(5, 5));
+        scopeLeft = UIFactory.Panel("Side", scopeRoot, Color.black).rectTransform;
+        scopeRight = UIFactory.Panel("Side", scopeRoot, Color.black).rectTransform;
+        scopeRoot.gameObject.SetActive(false);
+
+        // Your class and grenades (next to the ammo), and the class picker (while dead / just spawned).
+        BuildGear(root);
+        BuildCards(root);
+
+        // A live frag near you: a red marker round the crosshair, pointing at it.
+        nadeMark = UIFactory.Rect("Grenade warning", root);
+        UIFactory.Place(nadeMark, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(70, 70));
+        var bg = UIFactory.Panel("Disc", nadeMark, new Color(0.85f, 0.1f, 0.1f, 0.85f));
+        bg.sprite = Round();
+        UIFactory.Fill(bg.rectTransform, 10, 10, 10, 10);
+        nadeText = Text(nadeMark, "!", 34, Color.white, TextAlignmentOptions.Center, Vector2.zero, new Vector2(70, 70), centre: true);
+        nadeText.fontStyle = FontStyles.Bold;
+        nadeMark.gameObject.SetActive(false);
+
+        // Flashbang white-out (on top of everything but the connect fade).
+        flashCover = UIFactory.Panel("Flashed", root, new Color(1f, 1f, 1f, 0f));
+        UIFactory.Fill(flashCover.rectTransform);
+    }
+
+    // ------------------------------------------------------------------ gear (bottom right) and class cards
+
+    void BuildGear(RectTransform root)
+    {
+        classText = Text(root, "", 22, Color.white, TextAlignmentOptions.Left, new Vector2(590, 128), new Vector2(360, 30), bottom: true);
+        classText.fontStyle = FontStyles.Bold;
+        string[] keys = { "G", "Q" };
+        for (int i = 0; i < 2; i++)
+        {
+            var slot = UIFactory.Panel("Gear slot", root, new Color(0f, 0f, 0f, 0.55f));
+            slot.sprite = Rounded();
+            slot.type = Image.Type.Sliced;
+            UIFactory.Place(slot.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0.5f), new Vector2(450 + i * 92, 74), new Vector2(80, 80));
+            var icon = UIFactory.Panel("Icon", slot.transform, Color.white);
+            icon.sprite = i == 0 ? Round() : Rounded();
+            UIFactory.Place(icon.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 2), i == 0 ? new Vector2(34, 34) : new Vector2(22, 40));
+            if (i == 0)
+            {
+                // a frag: green body with a lever on top
+                icon.color = new Color(0.35f, 0.75f, 0.3f);
+                var lever = UIFactory.Panel("Lever", icon.transform, new Color(0.75f, 0.75f, 0.7f));
+                UIFactory.Place(lever.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0f), new Vector2(4, -4), new Vector2(10, 12));
+            }
+            else
+            {
+                // a flashbang: a white can with a band
+                icon.color = new Color(0.92f, 0.94f, 0.96f);
+                var band = UIFactory.Panel("Band", icon.transform, new Color(0.25f, 0.3f, 0.35f));
+                UIFactory.Place(band.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(22, 6));
+            }
+            var key = UIFactory.Panel("Key", slot.transform, Color.white);
+            key.sprite = Rounded();
+            key.type = Image.Type.Sliced;
+            UIFactory.Place(key.rectTransform, new Vector2(0f, 1f), new Vector2(0.5f, 0.5f), new Vector2(6, -6), new Vector2(28, 28));
+            var keyText = Text(key.rectTransform, keys[i], 19, Color.black, TextAlignmentOptions.Center, Vector2.zero, new Vector2(28, 28), centre: true);
+            keyText.fontStyle = FontStyles.Bold;
+            var count = Text(slot.rectTransform, "x1", 20, Color.white, TextAlignmentOptions.BottomRight, Vector2.zero, new Vector2(74, 74), centre: true);
+            count.fontStyle = FontStyles.Bold;
+            Text(slot.rectTransform, i == 0 ? "FRAG" : "FLASH", 13, new Color(1f, 1f, 1f, 0.6f), TextAlignmentOptions.Center, new Vector2(0, -52), new Vector2(80, 18), centre: true);
+            gear.Add((icon, count, slot));
+        }
+    }
+
+    void BuildCards(RectTransform root)
+    {
+        cardsRoot = UIFactory.Rect("Class cards", root);
+        UIFactory.Fill(cardsRoot);
+        var dim = UIFactory.Panel("Dim", cardsRoot, new Color(0.01f, 0.01f, 0.04f, 0.6f));
+        UIFactory.Fill(dim.rectTransform);
+        pickTitle = Text(cardsRoot, "CHOOSE YOUR CLASS", 44, Color.white, TextAlignmentOptions.Center, new Vector2(0, 300), new Vector2(1400, 60));
+        pickTitle.fontStyle = FontStyles.Bold;
+        pickText = Text(cardsRoot, "", 22, new Color(1f, 1f, 1f, 0.75f), TextAlignmentOptions.Center, new Vector2(0, -300), new Vector2(1400, 34));
+        string[] stats = { "DAMAGE", "FIRE RATE", "RANGE", "MOBILITY" };
+        for (int i = 0; i < VRLoadout.All.Length; i++)
+        {
+            var role = VRLoadout.All[i];
+            var l = VRLoadout.For(role);
+            Color c = ClassColours[i];
+            var card = UIFactory.Rect("Card", cardsRoot);
+            UIFactory.Place(card, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2((i - 1.5f) * 330, 0), new Vector2(300, 460));
+            var glow = UIFactory.Panel("Glow", card, new Color(c.r, c.g, c.b, 0f));
+            glow.sprite = Rounded();
+            glow.type = Image.Type.Sliced;
+            UIFactory.Fill(glow.rectTransform, -10, -10, -10, -10);
+            var frame = UIFactory.Panel("Frame", card, new Color(0.05f, 0.05f, 0.09f, 0.92f));
+            frame.sprite = Rounded();
+            frame.type = Image.Type.Sliced;
+            UIFactory.Fill(frame.rectTransform);
+
+            // The gun, turning (a live 3D picture).
+            var stand = UIFactory.Panel("Stand", card, new Color(c.r, c.g, c.b, 0.12f));
+            stand.sprite = Rounded();
+            stand.type = Image.Type.Sliced;
+            UIFactory.Place(stand.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -64), new Vector2(276, 160));
+            var pic = UIFactory.Rect("Gun", stand.transform).gameObject.AddComponent<RawImage>();
+            pic.raycastTarget = false;
+            pic.texture = VRWeaponShowcase.Picture(role);
+            UIFactory.Fill(pic.rectTransform);
+
+            var key = UIFactory.Panel("Key", card, c);
+            key.sprite = Rounded();
+            key.type = Image.Type.Sliced;
+            UIFactory.Place(key.rectTransform, new Vector2(0f, 1f), new Vector2(0.5f, 0.5f), new Vector2(34, -34), new Vector2(44, 44));
+            Text(key.rectTransform, (i + 1).ToString(), 28, Color.black, TextAlignmentOptions.Center, Vector2.zero, new Vector2(44, 44), centre: true).fontStyle = FontStyles.Bold;
+            var name = Text(card, l.name, 32, Color.white, TextAlignmentOptions.Left, Vector2.zero, new Vector2(220, 44));
+            name.rectTransform.anchorMin = name.rectTransform.anchorMax = new Vector2(0f, 1f);
+            name.rectTransform.pivot = new Vector2(0f, 0.5f);
+            name.rectTransform.anchoredPosition = new Vector2(68, -34);
+            name.fontStyle = FontStyles.Bold;
+
+            var blurb = Text(card, l.blurb, 16, new Color(1f, 1f, 1f, 0.72f), TextAlignmentOptions.Top, new Vector2(0, -20), new Vector2(270, 46));
+            blurb.enableWordWrapping = true;
+            for (int s = 0; s < stats.Length; s++)
+            {
+                float y = -70 - s * 34;
+                Text(card, stats[s], 14, new Color(1f, 1f, 1f, 0.6f), TextAlignmentOptions.Left, new Vector2(-12, y + 11), new Vector2(250, 18));
+                var bar = UIFactory.Panel("Bar", card, new Color(1f, 1f, 1f, 0.12f));
+                UIFactory.Place(bar.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, y - 4), new Vector2(250, 8));
+                var fill = UIFactory.Panel("Fill", bar.transform, c);
+                Stretch(fill.rectTransform);
+                fill.rectTransform.anchorMax = new Vector2(Ratings[i][s], 1f);
+            }
+            string kit = (l.frags > 0 ? $"[G] FRAG x{l.frags}" : "") + (l.frags > 0 && l.flashes > 0 ? "    " : "") + (l.flashes > 0 ? $"[Q] FLASH x{l.flashes}" : "");
+            Text(card, kit, 16, c, TextAlignmentOptions.Center, new Vector2(0, -205), new Vector2(270, 24)).fontStyle = FontStyles.Bold;
+            cards.Add((card, frame, glow, name));
+        }
+        cardsRoot.gameObject.SetActive(false);
+    }
+
+    bool cursorFreed;
+
+    /// <summary>While picking before a round: 1-4 or a click on a card picks it and starts the round.</summary>
+    void BriefingInput()
+    {
+        for (int i = 0; i < VRLoadout.All.Length; i++)
+            if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i)) { arena.ConfirmClass(VRLoadout.All[i]); return; }
+        if (!Input.GetMouseButtonDown(0)) return;
+        for (int i = 0; i < cards.Count; i++)
+            if (RectTransformUtility.RectangleContainsScreenPoint(cards[i].root, Input.mousePosition, null)) { arena.ConfirmClass(VRLoadout.All[i]); return; }
+    }
+
+    void FreeCursor(bool free)
+    {
+        if (cursorFreed == free) return;
+        cursorFreed = free;
+        Cursor.lockState = free ? CursorLockMode.None : CursorLockMode.Locked;
+        Cursor.visible = free;
+    }
+
+    void UpdateGear(VRPlayer p)
+    {
+        var root = (RectTransform)canvas.transform;
+        bool scoped = p.Scoped;
+        scopeRoot.gameObject.SetActive(scoped);
+        if (scoped)
+        {
+            float hgt = root.rect.height, w = root.rect.width;
+            scopeLens.sizeDelta = new Vector2(hgt, hgt);
+            float side = Mathf.Max(0f, (w - hgt) * 0.5f) + 4f;
+            foreach (var (rt, left) in new[] { (scopeLeft, true), (scopeRight, false) })
+            {
+                rt.anchorMin = new Vector2(left ? 0f : 1f, 0f);
+                rt.anchorMax = new Vector2(left ? 0f : 1f, 1f);
+                rt.pivot = new Vector2(left ? 0f : 1f, 0.5f);
+                rt.sizeDelta = new Vector2(side, 0f);
+                rt.anchoredPosition = Vector2.zero;
+            }
+        }
+        if (scoped) redDot.color = new Color(0f, 0f, 0f, 0f);
+
+        var l = p.Loadout;
+        string next = p.NextRole != p.Role ? $"  <size=75%><color=#FFD24A>next: {VRLoadout.For(p.NextRole).name}</color></size>" : "";
+        classText.text = l.name + next;
+        int[] counts = { p.Frags, p.Flashes };
+        for (int i = 0; i < gear.Count; i++)
+        {
+            bool have = counts[i] > 0;
+            gear[i].count.text = "x" + counts[i];
+            gear[i].icon.canvasRenderer.SetAlpha(have ? 1f : 0.25f);
+            gear[i].count.alpha = have ? 1f : 0.35f;
+            gear[i].slot.color = new Color(0f, 0f, 0f, have ? 0.55f : 0.3f);
+        }
+
+        // Class cards: before each round (everything waits for you), while you're dead, and between rounds.
+        bool briefing = arena.State == VRArena.Mode.Briefing;
+        bool between = match && match.State == MatchTask.Phase.Break && arena.State != VRArena.Mode.Fighting;
+        bool picking = briefing || !p.Alive || between;
+        cardsRoot.gameObject.SetActive(picking);
+        VRWeaponShowcase.Show(picking);
+        FreeCursor(briefing && p.controlled);
+        if (briefing) BriefingInput();
+        if (picking)
+        {
+            pickTitle.text = briefing ? $"CHOOSE YOUR CLASS  <color=#5AF0DC>{Mathf.CeilToInt(arena.BriefingLeft)}</color>"
+                           : between ? $"NEXT ROUND IN {Mathf.CeilToInt(match.Timer)}  -  CHOOSE YOUR CLASS" : "CHOOSE YOUR CLASS";
+            pickText.text = briefing ? "click a class or press 1 - 4  -  the round starts when you pick"
+                          : "press 1 - 4 to pick  -  you spawn with it";
+            int hover = -1;
+            if (briefing)
+                for (int i = 0; i < cards.Count; i++)
+                    if (RectTransformUtility.RectangleContainsScreenPoint(cards[i].root, Input.mousePosition, null)) hover = i;
+            for (int i = 0; i < cards.Count; i++)
+            {
+                bool on = VRLoadout.All[i] == p.NextRole || i == hover;
+                var c = ClassColours[i];
+                float pulse = on ? 0.55f + 0.25f * Mathf.Sin(Time.time * 4f) : 0f;
+                cards[i].glow.color = new Color(c.r, c.g, c.b, pulse);
+                cards[i].frame.color = on ? new Color(0.08f, 0.08f, 0.14f, 0.95f) : new Color(0.05f, 0.05f, 0.09f, 0.8f);
+                cards[i].root.localScale = Vector3.one * Mathf.Lerp(cards[i].root.localScale.x, on ? 1.07f : 0.96f, Time.unscaledDeltaTime * 12f);
+                cards[i].name.color = on ? c : Color.white;
+            }
+        }
+
+        // Nearest live frag within 9 m (an enemy's - or your own).
+        VRGrenade near = null;
+        float best = 9f;
+        foreach (var g in VRGrenade.Live)
+        {
+            if (!g || g.kind != VRGrenade.Kind.Frag || (g.team == 0 && g.thrower != p)) continue;
+            float d = Vector3.Distance(g.Position, p.transform.position);
+            if (d < best) { best = d; near = g; }
+        }
+        nadeMark.gameObject.SetActive(near && p.Alive && p.Cam);
+        if (near && p.Cam)
+        {
+            Vector3 local = p.Cam.transform.InverseTransformDirection(near.Position - p.Cam.transform.position);
+            float angle = Mathf.Atan2(local.x, local.z);
+            nadeMark.anchoredPosition = new Vector2(Mathf.Sin(angle), Mathf.Cos(angle)) * 170f;
+            nadeMark.localScale = Vector3.one * (1f + 0.15f * Mathf.Sin(Time.time * 18f));
+        }
+
+        float f = p.FlashAmount;
+        flashCover.color = new Color(1f, 1f, 1f, Mathf.Clamp01(f * 1.25f));
+    }
+
+    /// <summary>A rounded rectangle (sliced, so it stretches cleanly).</summary>
+    static Sprite Rounded()
+    {
+        if (rounded) return rounded;
+        const int size = 48, r = 14;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = Mathf.Max(0f, Mathf.Max(r - x - 0.5f, x + 0.5f - (size - r))), dy = Mathf.Max(0f, Mathf.Max(r - y - 0.5f, y + 0.5f - (size - r)));
+            float a = Mathf.Clamp01(r - Mathf.Sqrt(dx * dx + dy * dy) + 0.5f);
+            px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+        }
+        tex.SetPixels32(px);
+        tex.Apply();
+        rounded = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(r, r, r, r));
+        return rounded;
+    }
+
+    static Sprite Lens()
+    {
+        if (lens) return lens;
+        lens = MakeSprite(512, (x, y) =>
+        {
+            float d = Vector2.Distance(new Vector2(x, y), new Vector2(256f, 256f)) / 256f;
+            return Mathf.Clamp01((d - 0.93f) / 0.05f);
+        });
+        return lens;
     }
 
     void UpdateDomination(VRPlayer p)
     {
-        bool on = arena.State == VRArena.Mode.Fighting && arena.Flags.Count > 0;
+        UpdateGear(p);
+        bool on = (arena.State == VRArena.Mode.Fighting || arena.State == VRArena.Mode.Practice) && arena.Flags.Count > 0;
         domRoot.gameObject.SetActive(on);
         if (!on) return;
 
@@ -384,7 +692,7 @@ public class VRHud : MonoBehaviour
         cover.color = new Color(0f, 0f, 0f, fade);
         coverText.text = fadeText;
         coverText.alpha = fade;
-        if (!show || !p) return;
+        if (!show || !p) { if (cursorFreed) FreeCursor(false); VRWeaponShowcase.Show(false); return; }
         if (!match) match = FindObjectOfType<MatchTask>();
 
         // Crosshair spreads while moving or shooting.
@@ -456,7 +764,9 @@ public class VRHud : MonoBehaviour
         string score = match ? $"<color=#5AF0DC>YOU {match.Wins}</color>  :  <color=#FF555F>{match.Losses} THEM</color>" : "";
         string infoLine = "";
         UpdateDomination(p);
-        if (arena.State == VRArena.Mode.Fighting)
+        if (arena.State == VRArena.Mode.Briefing)
+            topBar.text = match && match.State == MatchTask.Phase.Round ? $"RANKED  -  ROUND {match.RoundNumber}  -  GET READY" : "WARM-UP  -  GET READY";
+        else if (arena.State == VRArena.Mode.Fighting)
         {
             int secs = Mathf.CeilToInt(Mathf.Max(0f, arena.TimeLeft));
             topBar.text = $"DOMINATION  -  ROUND {(match ? match.RoundNumber : 1)}  ({(match ? match.Wins : 0)}:{(match ? match.Losses : 0)})  -  {secs / 60}:{secs % 60:00}";
@@ -464,7 +774,8 @@ public class VRHud : MonoBehaviour
         }
         else if (arena.State == VRArena.Mode.Practice)
         {
-            topBar.text = $"WARM-UP  -  8v8 TEAM DEATHMATCH  -  YOUR KILLS: {p.Kills}  -  RANKED (8v8 DOMINATION) AT 4:00 PM";
+            int secs = Mathf.CeilToInt(Mathf.Max(0f, arena.TimeLeft));
+            topBar.text = $"WARM-UP DOMINATION (unranked)  -  {secs / 60}:{secs % 60:00}  -  KILLS: {p.Kills}  -  RANKED AT 4:00 PM";
             if (!p.Alive && arena.PlayerRespawnIn > 0f) infoLine = $"RESPAWN IN {Mathf.CeilToInt(arena.PlayerRespawnIn)}";
         }
         else if (match && match.State == MatchTask.Phase.Break)

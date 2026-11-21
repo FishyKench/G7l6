@@ -9,10 +9,10 @@ using UnityEngine.SceneManagement;
 /// Both worlds run at the same time - 30 seconds in VR are 30 seconds in the house. Esc takes the headset off;
 /// P pauses everything. Your body stays at the desk.
 ///
-/// At 4:00 PM a best-of-5 match starts (55 s rounds, 15 s breaks). Each round is 8v8 DOMINATION: you, your friend
+/// At 4:00 PM a best-of-5 match starts (55 s rounds, 45 s breaks). Each round is 8v8 DOMINATION: you, your friend
 /// Jay and 6 bots against 8 enemy bots, fighting over capture points A, B and C (see VRArena). The enemy gets
 /// sharper every round. Rounds start whether you're wearing the headset or not - without you, your avatar stands
-/// at spawn AFK and your team plays 7v8. Before 4:00 the arena has a warm-up 8v8 team deathmatch.
+/// at spawn AFK and your team plays 7v8. Before 4:00 the arena runs unranked warm-up Domination rounds.
 /// Winning rounds calms you down, losing them stresses you out. At 6:00 Mom pulls the headset off.
 /// </summary>
 public class MatchTask : TaskBase, IMainTask, IPromptProvider
@@ -28,7 +28,7 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
     public float roundLength = 55f;
     [Tooltip("Domination: points to win a round (each held point scores 1.5 a second).")]
     public float scoreLimit = 100f;
-    public float breakSeconds = 15f;
+    public float breakLength = 45f; // time between rounds (pick a class, sort the house)
     [Tooltip("If there's no day clock: seconds after the start before the match begins.")]
     public float fallbackStartDelay = 120f;
     public string friendName = "JAY";
@@ -307,7 +307,7 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
         if (hud) hud.Announce(won ? "ROUND WON" : "ROUND LOST", 2f, won ? new Color32(90, 240, 220, 255) : new Color32(255, 85, 95, 255));
         if (!inVR) GameHUD.Toast(won ? $"Your team won round {Wins + Losses} without you!" : $"Lost round {Wins + Losses} - you weren't there", won ? GameHUD.Good : GameHUD.Bad);
         State = Phase.Break;
-        Timer = breakSeconds;
+        Timer = breakLength;
     }
 
     static void Text(string from, string message)

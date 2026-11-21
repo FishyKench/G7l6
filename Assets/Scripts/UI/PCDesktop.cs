@@ -12,7 +12,7 @@ using UnityEngine.UI;
 /// what's open - click it to switch, or press TAB. Everything stays as it is when you get up.
 /// Made by the GamingPC.
 /// </summary>
-public class PCDesktop : MonoBehaviour
+public partial class PCDesktop : MonoBehaviour
 {
     public GamingPC pc;
 
@@ -80,6 +80,7 @@ public class PCDesktop : MonoBehaviour
         cursor.SetAsLastSibling();
         clock.text = ClockText();
         UpdateLauncher();
+        UpdateStore();
         UpdateTaskbar();
 
         if (Input.GetKeyDown(KeyCode.Tab)) { CycleWindows(); return; }
@@ -129,6 +130,7 @@ public class PCDesktop : MonoBehaviour
             if (Over(w.rt.Find("Title bar/Minimise") as RectTransform)) { Minimise(w); return; }
             if (focused != w) Focus(w);
             if (w == gameWin) LauncherClick();
+            if (w == storeWin) StoreClick();
             return;
         }
 
@@ -171,6 +173,7 @@ public class PCDesktop : MonoBehaviour
             return;
         }
         if (id == "game") { Focus(Opened(gameWin)); return; }
+        if (id == "store") { if (!storeWin.open) RebuildLibrary(); Focus(Opened(storeWin)); return; }
         var icon = icons.Find(i => i.id == id);
         if (icon == null) return;
         SetTitle(otherWin, icon.label);
@@ -424,15 +427,17 @@ public class PCDesktop : MonoBehaviour
         AddIcon("photos", "Photos", "1,204 photos.\n1,198 of them are the cat.", DrawPhotos);
         AddIcon("files", "Files", "Homework (final).docx\nHomework (final 2).docx\nHomework (REAL final).docx", DrawFiles);
         AddIcon("settings", "Settings", "Nothing to change.\nIt's perfect already.", DrawSettings);
-        AddIcon("store", "Store", "Your wallet: $0.37", DrawStore);
+        AddIcon("store", "Vapor", null, DrawStore);
         AddIcon("notes", "Notes", "TODO:\n- everything", DrawNotes);
 
+        foreach (var g in Catalogue) if (Owns(g)) AddGameIcon(g);
         windowLayer = UIFactory.Rect("Windows", screen);
         UIFactory.Fill(windowLayer);
         var big = new Vector2(ScreenW - 40f, ScreenH - TaskbarH - 30f);
         homeworkWin = MakeWindow("homework", "Homework.docx - Docs", big, new Color32(232, 232, 238, 255));
         gameWin = MakeWindow("game", "Ranked Arena", big, new Color32(16, 12, 36, 255));
         BuildLauncher(gameWin.content);
+        BuildStore();
         otherWin = MakeWindow("other", "App", new Vector2(560, 300), new Color32(240, 240, 246, 255));
         otherWin.rt.anchoredPosition = new Vector2(140, 60);
         otherBody = UIFactory.Text("Body", otherWin.content, 24, new Color32(40, 40, 60, 255), TextAlignmentOptions.Center);
