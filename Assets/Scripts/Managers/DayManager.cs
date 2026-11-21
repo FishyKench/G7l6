@@ -107,6 +107,7 @@ public class DayManager : MonoBehaviour
 
     void Update()
     {
+        if (PauseMenu.IsPaused) return;
         if (State == Phase.Report)
         {
             if (Input.GetKeyDown(KeyCode.R)) PlayAgain();
@@ -201,9 +202,13 @@ public class DayManager : MonoBehaviour
         foreach (var c in FindObjectsOfType<PlayerCam>()) c.enabled = false;
     }
 
-    void PlayAgain()
+    void PlayAgain() => RestartDay();
+
+    /// <summary>Starts the day over (reloads the scene).</summary>
+    public static void RestartDay()
     {
         Time.timeScale = 1f;
+        AudioListener.pause = false;
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex >= 0 ? SceneManager.GetActiveScene().buildIndex : 0);
     }
 

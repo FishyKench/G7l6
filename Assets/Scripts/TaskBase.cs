@@ -59,7 +59,7 @@ public abstract class TaskBase : MonoBehaviour
 
     protected virtual void Update()
     {
-        if (!IsActive) return;
+        if (!IsActive || PauseMenu.IsPaused) return;
 
         if (DeadlineRunning)
         {

@@ -191,7 +191,7 @@ public class MiniMap : MonoBehaviour
     void Update()
     {
         if (!layout || !player) return;
-        if (Input.GetKeyDown(toggleKey)) targetAlpha = targetAlpha > 0.5f ? 0f : 1f;
+        if (!PauseMenu.IsPaused && Input.GetKeyDown(toggleKey)) targetAlpha = targetAlpha > 0.5f ? 0f : 1f;
         group.alpha = Mathf.MoveTowards(group.alpha, targetAlpha, Time.unscaledDeltaTime * 5f);
 
         int floor = layout.FloorAt(player.position.y - 1f);

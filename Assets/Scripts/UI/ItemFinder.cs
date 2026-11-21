@@ -50,7 +50,7 @@ public class ItemFinder : MonoBehaviour
 
     void Update()
     {
-        bool want = Input.GetKey(key) && !(DayManager.Instance && DayManager.Instance.State == DayManager.Phase.Report);
+        bool want = !PauseMenu.IsPaused && Input.GetKey(key) && !(DayManager.Instance && DayManager.Instance.State == DayManager.Phase.Report);
         if (want != showing)
         {
             showing = want;
