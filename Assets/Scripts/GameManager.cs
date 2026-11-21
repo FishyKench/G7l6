@@ -32,6 +32,7 @@ public class GameManager : MonoBehaviour
         if (!FindObjectOfType<GameHUD>()) new GameObject("HUD").AddComponent<GameHUD>();
         if (!FindObjectOfType<ExhaustionManager>()) gameObject.AddComponent<ExhaustionManager>();
         if (!FindObjectOfType<DayManager>()) gameObject.AddComponent<DayManager>(); // the clock, Mom coming home, the report card
+        if (!FindObjectOfType<ItemFinder>()) gameObject.AddComponent<ItemFinder>(); // hold Tab to see where things are
     }
 
     void Start()

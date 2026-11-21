@@ -341,6 +341,21 @@ public class MiniMap : MonoBehaviour
             }
         }
 
+        // Holding Tab: every key item, not just the ones a task needs right now.
+        if (ItemFinder.Showing)
+        {
+            foreach (var item in items)
+            {
+                if (!item || !item.gameObject.activeInHierarchy || (carry && carry.Held == item)) continue;
+                if (entries.Exists(e => e.tool && e.name == item.displayName)) continue;
+                entries.Add(new Entry
+                {
+                    badge = item.displayName.Substring(0, 1).ToUpperInvariant(),
+                    world = item.transform.position, color = ToolColor, name = item.displayName, tool = true,
+                });
+            }
+        }
+
         // Mom, once she's home and inspecting.
         var day = DayManager.Instance;
         if (day && day.Mom)
