@@ -9,14 +9,14 @@ using UnityEngine.Rendering.PostProcessing;
 
 /// <summary>
 /// Menu: G7l6 > Set Up VR Match.
-///   1. Builds the VR arena as its own scene (Assets/Scenes/VRArena.unity): a neon grid floor, walls, cover, lights
-///      and spawn points, far away from the house so both can be loaded at once. Edit it freely afterwards (keep
-///      the "Spawn A/B" objects); running this again rebuilds it.
+///   1. Builds the VR arena as its own scene (Assets/Scenes/VRArena.unity): the "Neon District" city map for 8v8
+///      Domination (see VRMapBuilder.cs), far away from the house so both can be loaded at once. Edit it freely
+///      afterwards (keep the "Spawn A/B" and "Flag A/B/C" objects); running this again rebuilds it.
 ///   2. Adds it to Build Settings (after the house).
 ///   3. Puts a VR headset on your gaming desk in NewHouse and moves the ranked match onto it. Nothing else in the
 ///      house changes. Both scenes are saved.
 /// </summary>
-public static class VRArenaBuilder
+public static partial class VRArenaBuilder
 {
     const string ArenaPath = "Assets/Scenes/VRArena.unity";
     const string MaterialFolder = "Assets/Materials/VR";
@@ -42,6 +42,20 @@ public static class VRArenaBuilder
         Debug.Log($"[VR] Built {ArenaPath} and added it to Build Settings.\n{headset}\nBoth scenes are saved. Press Play, walk to your room and press E on the headset.");
     }
 
+    /// <summary>
+    /// Menu: G7l6 > Rebuild VR Arena Map. Rebuilds only the arena scene (the city map). The house isn't touched.
+    /// </summary>
+    [MenuItem("G7l6/Rebuild VR Arena Map")]
+    public static void RebuildArena()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[VR] Stop Play mode first."); return; }
+        var active = SceneManager.GetActiveScene();
+        BuildArenaScene();
+        if (active.IsValid() && active.isLoaded) SceneManager.SetActiveScene(active);
+        AddToBuild();
+        Debug.Log($"[VR] Rebuilt the arena map ({ArenaPath}): Neon District, 8v8 Domination with points A, B and C. The house wasn't changed.");
+    }
+
     // ------------------------------------------------------------------ the arena scene
 
     static void BuildArenaScene()
@@ -55,10 +69,10 @@ public static class VRArenaBuilder
 
         RenderSettings.skybox = Sky();
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.17f, 0.15f, 0.28f);
+        RenderSettings.ambientLight = new Color(0.46f, 0.44f, 0.62f); // bright enough to see cars, cover and your gun
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        RenderSettings.fogDensity = 0.011f;
+        RenderSettings.fogDensity = 0.0075f;
         RenderSettings.fogColor = new Color(0.04f, 0.03f, 0.1f);
 
         var root = new GameObject("VR Arena").transform;
@@ -66,89 +80,25 @@ public static class VRArenaBuilder
         root.gameObject.AddComponent<VRArena>();
         root.gameObject.AddComponent<VRAmbience>();
 
-        var floorMat = FloorMaterial();
-        var wallMat = Mat("VR Wall", new Color(0.09f, 0.1f, 0.17f), Color.black, 0f, 0.3f);
-        var coverMat = Mat("VR Cover", new Color(0.13f, 0.15f, 0.25f), Color.black, 0f, 0.4f);
         var cyan = Mat("VR Neon Cyan", new Color(0.2f, 0.9f, 1f), new Color(0.2f, 0.9f, 1f), 2.2f, 0.5f);
         var pink = Mat("VR Neon Pink", new Color(1f, 0.25f, 0.75f), new Color(1f, 0.25f, 0.75f), 2.2f, 0.5f);
 
-        // Floor and walls (64 x 44 m, 5 m high).
-        Box("Floor", root, new Vector3(0f, -0.25f, 0f), new Vector3(64f, 0.5f, 44f), floorMat);
-        Box("Wall N", root, new Vector3(0f, 2.5f, 22.5f), new Vector3(66f, 5f, 1f), wallMat);
-        Box("Wall S", root, new Vector3(0f, 2.5f, -22.5f), new Vector3(66f, 5f, 1f), wallMat);
-        Box("Wall W", root, new Vector3(-32.5f, 2.5f, 0f), new Vector3(1f, 5f, 46f), wallMat);
-        Box("Wall E", root, new Vector3(32.5f, 2.5f, 0f), new Vector3(1f, 5f, 46f), wallMat);
-        Trim(root, new Vector3(0f, 5.05f, 21.95f), new Vector3(64f, 0.12f, 0.12f), pink);
-        Trim(root, new Vector3(0f, 5.05f, -21.95f), new Vector3(64f, 0.12f, 0.12f), pink);
-        Trim(root, new Vector3(-31.95f, 5.05f, 0f), new Vector3(0.12f, 0.12f, 44f), cyan);
-        Trim(root, new Vector3(31.95f, 5.05f, 0f), new Vector3(0.12f, 0.12f, 44f), cyan);
-        Trim(root, new Vector3(0f, 0.04f, 21.95f), new Vector3(64f, 0.08f, 0.08f), cyan);
-        Trim(root, new Vector3(0f, 0.04f, -21.95f), new Vector3(64f, 0.08f, 0.08f), cyan);
-
-        // Cover - mirrored left/right so both teams get the same map. (x, z, width, height, depth)
-        (float x, float z, float w, float h, float d)[] cover =
-        {
-            (0f, 0f, 4f, 3.5f, 6f),                                    // centre block
-            (10f, 8f, 2f, 3f, 2f), (10f, -8f, 2f, 3f, 2f),             // pillars
-            (16f, 0f, 1f, 1.3f, 6f),                                   // low wall (shoot over it)
-            (6f, 14f, 6f, 1.3f, 1f), (6f, -14f, 6f, 1.3f, 1f),         // low walls
-            (22f, 10f, 3f, 2.5f, 3f), (22f, -10f, 3f, 2.5f, 3f),       // crates
-            (24f, 0f, 1f, 1.3f, 4f),                                   // spawn cover
-            (0f, 16f, 2f, 3f, 6f), (0f, -16f, 2f, 3f, 6f),             // side blocks (centre)
-        };
-        int n = 0;
-        foreach (var c in cover)
-        {
-            foreach (int side in c.x == 0f ? new[] { 1 } : new[] { 1, -1 })
-            {
-                var at = new Vector3(c.x * side, c.h * 0.5f, c.z);
-                Box($"Cover {++n}", root, at, new Vector3(c.w, c.h, c.d), coverMat);
-                Trim(root, new Vector3(at.x, c.h + 0.03f, at.z), new Vector3(c.w + 0.04f, 0.06f, c.d + 0.04f), side > 0 ? pink : cyan);
-            }
-        }
-
-        // Spawns: your team west (facing east), the enemy east (facing west).
-        for (int i = 0; i < 3; i++)
-        {
-            Marker($"Spawn A {i + 1}", root, new Vector3(-28f, 0.05f, (i - 1) * 4f), Quaternion.Euler(0f, 90f, 0f));
-            Marker($"Spawn B {i + 1}", root, new Vector3(28f, 0.05f, (i - 1) * 4f), Quaternion.Euler(0f, -90f, 0f));
-        }
-        Pad(root, new Vector3(-28f, 0.02f, 0f), Mat("VR Team Blue", new Color(0.2f, 0.5f, 1f), new Color(0.2f, 0.5f, 1f), 1.2f, 0.3f));
-        Pad(root, new Vector3(28f, 0.02f, 0f), Mat("VR Team Red", new Color(1f, 0.25f, 0.3f), new Color(1f, 0.25f, 0.3f), 1.2f, 0.3f));
+        BuildCity(root);
 
         // Lights.
-        Lamp(root, new Vector3(0f, 7f, 0f), new Color(0.4f, 0.9f, 1f), 26f, 1.6f);
-        Lamp(root, new Vector3(-18f, 6f, 12f), new Color(1f, 0.35f, 0.8f), 18f, 1.3f);
-        Lamp(root, new Vector3(18f, 6f, -12f), new Color(1f, 0.35f, 0.8f), 18f, 1.3f);
-        Lamp(root, new Vector3(-18f, 6f, -12f), new Color(0.35f, 0.7f, 1f), 18f, 1.3f);
-        Lamp(root, new Vector3(18f, 6f, 12f), new Color(0.35f, 0.7f, 1f), 18f, 1.3f);
-        Lamp(root, new Vector3(-28f, 4f, 0f), new Color(0.3f, 0.55f, 1f), 12f, 1.4f);
-        Lamp(root, new Vector3(28f, 4f, 0f), new Color(1f, 0.3f, 0.35f), 12f, 1.4f);
         var sun = new GameObject("Arena light").AddComponent<Light>();
         sun.transform.SetParent(root, false);
         sun.type = LightType.Directional;
-        sun.color = new Color(0.55f, 0.5f, 0.8f);
-        sun.intensity = 0f; // the house has a sun already; this is here to tweak the arena's mood if you want
+        sun.color = new Color(0.62f, 0.68f, 1f);
+        sun.intensity = 0.75f; // moonlight over the whole map
+        sun.shadows = LightShadows.Soft;
+        sun.shadowStrength = 0.55f;
         sun.transform.rotation = Quaternion.Euler(55f, 30f, 0f);
 
         Skyline(root);
         Hologram(root, cyan, pink);
         Sweeps(root);
-        Stripes(root, cyan, pink);
         PostEffects(root);
-
-        // A big neon sign on the north wall.
-        var sign = new GameObject("Sign").AddComponent<TextMeshPro>();
-        sign.transform.SetParent(root, false);
-        sign.transform.localPosition = new Vector3(0f, 3.4f, 21.9f);
-        sign.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-        sign.text = "RANKED ARENA";
-        sign.fontSize = 18f;
-        sign.color = new Color(0.4f, 1f, 0.95f);
-        sign.alignment = TextAlignmentOptions.Center;
-        sign.rectTransform.sizeDelta = new Vector2(30f, 4f);
-        sign.fontStyle = FontStyles.Bold;
-
         EditorSceneManager.SaveScene(scene, ArenaPath);
         EditorSceneManager.CloseScene(scene, true);
     }
@@ -271,7 +221,7 @@ public static class VRArenaBuilder
         // The camera you'll see through in VR, with post-processing (bloom makes the neon glow).
         var camGo = new GameObject("VR Camera");
         camGo.transform.SetParent(root, false);
-        camGo.transform.localPosition = new Vector3(-28f, 1.6f, 0f);
+        camGo.transform.localPosition = new Vector3(-54f, 1.6f, 0f);
         var cam = camGo.AddComponent<Camera>();
         cam.clearFlags = CameraClearFlags.Skybox;
         cam.allowHDR = true;
@@ -291,13 +241,13 @@ public static class VRArenaBuilder
         var profile = ScriptableObject.CreateInstance<PostProcessProfile>();
         AssetDatabase.CreateAsset(profile, profilePath);
         var bloom = profile.AddSettings<Bloom>();
-        bloom.intensity.Override(6f);
-        bloom.threshold.Override(1f);
+        bloom.intensity.Override(1.6f);
+        bloom.threshold.Override(1.25f);
         bloom.softKnee.Override(0.55f);
-        bloom.diffusion.Override(7.5f);
+        bloom.diffusion.Override(5.5f);
         var grading = profile.AddSettings<ColorGrading>();
         grading.tonemapper.Override(Tonemapper.ACES);
-        grading.postExposure.Override(0.45f);
+        grading.postExposure.Override(0.2f);
         grading.saturation.Override(22f);
         grading.contrast.Override(18f);
         grading.colorFilter.Override(new Color(1f, 0.96f, 1.04f));
@@ -344,13 +294,13 @@ public static class VRArenaBuilder
         };
         var city = new GameObject("Skyline").transform;
         city.SetParent(root, false);
-        var rng = new System.Random(42);
-        for (int i = 0; i < 54; i++)
+        var rand = new System.Random(42);
+        for (int i = 0; i < 70; i++)
         {
-            float angle = (float)rng.NextDouble() * Mathf.PI * 2f;
-            float dist = 48f + (float)rng.NextDouble() * 75f;
-            float w = 4f + (float)rng.NextDouble() * 7f, d = 4f + (float)rng.NextDouble() * 7f;
-            float h = 14f + (float)rng.NextDouble() * (dist > 80f ? 60f : 35f);
+            float angle = (float)rand.NextDouble() * Mathf.PI * 2f;
+            float dist = 82f + (float)rand.NextDouble() * 70f;
+            float w = 4f + (float)rand.NextDouble() * 7f, d = 4f + (float)rand.NextDouble() * 7f;
+            float h = 30f + (float)rand.NextDouble() * (dist > 110f ? 70f : 40f);
             var at = new Vector3(Mathf.Cos(angle) * dist * 1.25f, h * 0.5f - 2f, Mathf.Sin(angle) * dist);
             var tower = GameObject.CreatePrimitive(PrimitiveType.Cube);
             tower.name = "Tower";
@@ -359,13 +309,13 @@ public static class VRArenaBuilder
             tower.transform.localPosition = at;
             tower.transform.localScale = new Vector3(w, h, d);
             tower.GetComponent<Renderer>().sharedMaterial = dark;
-            var neon = colours[rng.Next(colours.Length)];
+            var neon = colours[rand.Next(colours.Length)];
             // A glowing roof edge and a few window bands.
             Trim(city, at + Vector3.up * (h * 0.5f + 0.1f), new Vector3(w + 0.3f, 0.25f, d + 0.3f), neon, i % 3 == 0 ? "Pulse roof" : "Roof");
-            int bands = rng.Next(1, 4);
+            int bands = rand.Next(1, 4);
             for (int b = 0; b < bands; b++)
             {
-                float y = at.y - h * 0.5f + h * (0.25f + 0.6f * (float)rng.NextDouble());
+                float y = at.y - h * 0.5f + h * (0.25f + 0.6f * (float)rand.NextDouble());
                 Trim(city, new Vector3(at.x, y, at.z), new Vector3(w + 0.06f, 0.18f, d + 0.06f), neon, "Band");
             }
         }

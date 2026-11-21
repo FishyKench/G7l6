@@ -40,6 +40,14 @@ public class VRHud : MonoBehaviour
     float baseAberration = -1f;
     string announceText;
     float announceUntil, announceLength = 1f;
+    // Domination
+    RectTransform domRoot;
+    readonly List<(Image badge, TextMeshProUGUI letter, Image fill)> badges = new List<(Image, TextMeshProUGUI, Image)>();
+    readonly List<(RectTransform root, Image diamond, TextMeshProUGUI letter, TextMeshProUGUI distance)> markers = new List<(RectTransform, Image, TextMeshProUGUI, TextMeshProUGUI)>();
+    TextMeshProUGUI ourScore, theirScore, notice, capText;
+    Image ourFill, theirFill, capFill;
+    RectTransform capBar;
+    float noticeUntil;
     static Sprite round, vignette;
 
     void Start()
@@ -54,6 +62,15 @@ public class VRHud : MonoBehaviour
         announceLength = seconds;
         announceUntil = Time.time + seconds;
         if (announce) announce.color = color ?? Color.white;
+    }
+
+    /// <summary>A mid-size line for capture-point news ("B CAPTURED", "A LOST").</summary>
+    public void Notice(string text, Color color)
+    {
+        if (!notice) return;
+        notice.text = text;
+        notice.color = color;
+        noticeUntil = Time.time + 2.2f;
     }
 
     /// <summary>A small pop under the crosshair ("HEADSHOT", "ELIMINATED").</summary>
@@ -186,7 +203,8 @@ public class VRHud : MonoBehaviour
         Stretch(reloadFill.rectTransform);
         Text(root, "HP", 18, new Color(1f, 1f, 1f, 0.6f), TextAlignmentOptions.Right, new Vector2(-250, 40), new Vector2(160, 24), bottom: true);
 
-        topBar = Text(root, "", 26, Color.white, TextAlignmentOptions.Center, new Vector2(0, -140), new Vector2(1100, 40), top: true);
+        topBar = Text(root, "", 26, Color.white, TextAlignmentOptions.Center, new Vector2(0, -150), new Vector2(1100, 40), top: true);
+        BuildDomination(root);
         topBar.fontStyle = FontStyles.Bold;
         announce = Text(root, "", 84, Color.white, TextAlignmentOptions.Center, new Vector2(0, 130), new Vector2(1400, 110));
         announce.fontStyle = FontStyles.Bold;
@@ -204,6 +222,135 @@ public class VRHud : MonoBehaviour
         UIFactory.Fill(cover.rectTransform);
         coverText = Text(cover.rectTransform, "", 34, Cyan, TextAlignmentOptions.Center, Vector2.zero, new Vector2(900, 60), centre: true);
         canvas.enabled = false;
+    }
+
+    void BuildDomination(RectTransform root)
+    {
+        domRoot = UIFactory.Rect("Domination", root);
+        UIFactory.Fill(domRoot);
+        var top = UIFactory.Rect("Flags", domRoot);
+        UIFactory.Place(top, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -30), new Vector2(900, 100));
+
+        for (int i = 0; i < 3; i++)
+        {
+            var badge = UIFactory.Panel("Badge", top, new Color(0.85f, 0.85f, 0.9f, 0.85f));
+            UIFactory.Place(badge.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2((i - 1) * 70, -30), new Vector2(40, 40));
+            badge.rectTransform.localRotation = Quaternion.Euler(0, 0, 45);
+            var letter = Text(top, "", 28, Color.white, TextAlignmentOptions.Center, Vector2.zero, new Vector2(60, 40));
+            letter.rectTransform.anchorMin = letter.rectTransform.anchorMax = new Vector2(0.5f, 1f);
+            letter.rectTransform.anchoredPosition = new Vector2((i - 1) * 70, -30);
+            letter.fontStyle = FontStyles.Bold;
+            var bar = UIFactory.Panel("Capture", top, new Color(1f, 1f, 1f, 0.15f));
+            UIFactory.Place(bar.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2((i - 1) * 70, -66), new Vector2(46, 5));
+            var fill = UIFactory.Panel("Fill", bar.transform, Color.white);
+            Stretch(fill.rectTransform);
+            badges.Add((badge, letter, fill));
+        }
+
+        ourScore = Text(top, "0", 40, Cyan, TextAlignmentOptions.Right, Vector2.zero, new Vector2(120, 50));
+        ourScore.rectTransform.anchorMin = ourScore.rectTransform.anchorMax = new Vector2(0.5f, 1f);
+        ourScore.rectTransform.anchoredPosition = new Vector2(-190, -26);
+        ourScore.fontStyle = FontStyles.Bold;
+        theirScore = Text(top, "0", 40, Red, TextAlignmentOptions.Left, Vector2.zero, new Vector2(120, 50));
+        theirScore.rectTransform.anchorMin = theirScore.rectTransform.anchorMax = new Vector2(0.5f, 1f);
+        theirScore.rectTransform.anchoredPosition = new Vector2(190, -26);
+        theirScore.fontStyle = FontStyles.Bold;
+        var ourBar = UIFactory.Panel("Our score", top, new Color(1f, 1f, 1f, 0.12f));
+        UIFactory.Place(ourBar.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-200, -62), new Vector2(170, 8));
+        ourFill = UIFactory.Panel("Fill", ourBar.transform, Cyan);
+        Stretch(ourFill.rectTransform);
+        var theirBar = UIFactory.Panel("Their score", top, new Color(1f, 1f, 1f, 0.12f));
+        UIFactory.Place(theirBar.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(200, -62), new Vector2(170, 8));
+        theirFill = UIFactory.Panel("Fill", theirBar.transform, Red);
+        Stretch(theirFill.rectTransform);
+
+        // Markers over each point, out in the world.
+        for (int i = 0; i < 3; i++)
+        {
+            var m = UIFactory.Rect("Marker", domRoot);
+            UIFactory.Place(m, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(60, 70));
+            var diamond = UIFactory.Panel("Diamond", m, Color.white);
+            UIFactory.Place(diamond.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 8), new Vector2(26, 26));
+            diamond.rectTransform.localRotation = Quaternion.Euler(0, 0, 45);
+            var letter = Text(m, "", 20, Color.white, TextAlignmentOptions.Center, new Vector2(0, 8), new Vector2(40, 30));
+            letter.fontStyle = FontStyles.Bold;
+            var dist = Text(m, "", 15, new Color(1f, 1f, 1f, 0.8f), TextAlignmentOptions.Center, new Vector2(0, -18), new Vector2(80, 20));
+            markers.Add((m, diamond, letter, dist));
+        }
+
+        // Standing in a point: what's happening and how far the capture is.
+        capText = Text(domRoot, "", 26, Color.white, TextAlignmentOptions.Center, new Vector2(0, -150), new Vector2(700, 36));
+        capText.fontStyle = FontStyles.Bold;
+        var cb = UIFactory.Panel("Capture bar", domRoot, new Color(1f, 1f, 1f, 0.15f));
+        UIFactory.Place(cb.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -178), new Vector2(280, 8));
+        capBar = cb.rectTransform;
+        capFill = UIFactory.Panel("Fill", cb.transform, Color.white);
+        Stretch(capFill.rectTransform);
+
+        notice = Text(domRoot, "", 36, Color.white, TextAlignmentOptions.Center, new Vector2(0, 230), new Vector2(900, 50));
+        notice.fontStyle = FontStyles.Bold;
+    }
+
+    void UpdateDomination(VRPlayer p)
+    {
+        bool on = arena.State == VRArena.Mode.Fighting && arena.Flags.Count > 0;
+        domRoot.gameObject.SetActive(on);
+        if (!on) return;
+
+        ourScore.text = Mathf.FloorToInt(arena.Score[0]).ToString();
+        theirScore.text = Mathf.FloorToInt(arena.Score[1]).ToString();
+        ourFill.rectTransform.anchorMax = new Vector2(arena.Score[0] / arena.ScoreLimit, 1f);
+        theirFill.rectTransform.anchorMax = new Vector2(arena.Score[1] / arena.ScoreLimit, 1f);
+
+        var cam = p.Cam;
+        var root = (RectTransform)canvas.transform;
+        VRFlag standingIn = null;
+        for (int i = 0; i < badges.Count; i++)
+        {
+            bool has = i < arena.Flags.Count;
+            badges[i].badge.gameObject.SetActive(has);
+            badges[i].letter.gameObject.SetActive(has);
+            markers[i].root.gameObject.SetActive(false);
+            if (!has) continue;
+            var f = arena.Flags[i];
+            Color c = VRFlag.TeamColor(f.Owner);
+            float pulse = f.Contested || (f.Capturer >= 0 && f.Progress > 0f) ? 0.6f + 0.4f * Mathf.Abs(Mathf.Sin(Time.time * 6f)) : 1f;
+            badges[i].badge.color = new Color(c.r, c.g, c.b, 0.85f * pulse);
+            badges[i].letter.text = f.letter;
+            badges[i].fill.color = VRFlag.TeamColor(f.Capturer);
+            badges[i].fill.rectTransform.anchorMax = new Vector2(f.Progress, 1f);
+            if (p.Alive && f.Contains(p.transform.position)) standingIn = f;
+
+            if (!cam) continue;
+            Vector3 world = f.Position + Vector3.up * 4.6f;
+            Vector3 screen = cam.WorldToScreenPoint(world);
+            if (screen.z <= 0.1f) continue;
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(root, screen, null, out var local)) continue;
+            var m = markers[i];
+            m.root.gameObject.SetActive(standingIn != f);
+            m.root.anchoredPosition = local;
+            m.diamond.color = new Color(c.r, c.g, c.b, 0.75f * pulse);
+            m.letter.text = f.letter;
+            m.distance.text = Mathf.RoundToInt(Vector3.Distance(p.transform.position, f.Position)) + "m";
+        }
+
+        bool showCap = standingIn != null;
+        capText.gameObject.SetActive(showCap);
+        capBar.gameObject.SetActive(showCap && standingIn.Progress > 0f);
+        if (showCap)
+        {
+            var f = standingIn;
+            if (f.Contested) { capText.text = $"CONTESTED - {f.letter}"; capText.color = new Color(1f, 0.82f, 0.3f); }
+            else if (f.Owner == 0 && f.Progress <= 0f) { capText.text = $"DEFENDING {f.letter}"; capText.color = Cyan; }
+            else if (f.Capturer == 0) { capText.text = $"CAPTURING {f.letter}"; capText.color = Cyan; }
+            else { capText.text = $"CLEARING {f.letter}"; capText.color = Color.white; }
+            capFill.color = VRFlag.TeamColor(f.Capturer);
+            capFill.rectTransform.anchorMax = new Vector2(f.Progress, 1f);
+        }
+
+        float left = noticeUntil - Time.time;
+        notice.alpha = Mathf.Clamp01(left / 0.4f);
+        notice.rectTransform.localScale = Vector3.one * (1f + Mathf.Max(0f, left - 1.9f) * 1.5f);
     }
 
     static void Stretch(RectTransform rt)
@@ -308,14 +455,17 @@ public class VRHud : MonoBehaviour
         // Score line and the info under the announcement.
         string score = match ? $"<color=#5AF0DC>YOU {match.Wins}</color>  :  <color=#FF555F>{match.Losses} THEM</color>" : "";
         string infoLine = "";
+        UpdateDomination(p);
         if (arena.State == VRArena.Mode.Fighting)
         {
-            topBar.text = $"RANKED  -  ROUND {(match ? match.RoundNumber : 1)}   {score}   -   {Mathf.CeilToInt(Mathf.Max(0f, arena.TimeLeft))}s";
-            if (!p.Alive) infoLine = "ELIMINATED  -  your team fights on";
+            int secs = Mathf.CeilToInt(Mathf.Max(0f, arena.TimeLeft));
+            topBar.text = $"DOMINATION  -  ROUND {(match ? match.RoundNumber : 1)}  ({(match ? match.Wins : 0)}:{(match ? match.Losses : 0)})  -  {secs / 60}:{secs % 60:00}";
+            if (!p.Alive) infoLine = arena.PlayerRespawnIn > 0f ? $"RESPAWN IN {Mathf.CeilToInt(arena.PlayerRespawnIn)}" : "";
         }
         else if (arena.State == VRArena.Mode.Practice)
         {
-            topBar.text = $"WARM-UP DEATHMATCH  -  KILLS: {p.Kills}  -  RANKED AT 4:00 PM";
+            topBar.text = $"WARM-UP  -  8v8 TEAM DEATHMATCH  -  YOUR KILLS: {p.Kills}  -  RANKED (8v8 DOMINATION) AT 4:00 PM";
+            if (!p.Alive && arena.PlayerRespawnIn > 0f) infoLine = $"RESPAWN IN {Mathf.CeilToInt(arena.PlayerRespawnIn)}";
         }
         else if (match && match.State == MatchTask.Phase.Break)
         {

@@ -1719,7 +1719,38 @@ public static class HouseBuilder
         return $"{pieces} skirting boards";
     }
 
-    /// <summary>Wardrobe in your room, the dirty clothes pile in your room, and clean clothes on the washer.</summary>
+    /// <summary>
+    /// Menu: G7l6 > Scatter Dirty Laundry. The laundry's dirty clothes become pieces scattered round your room
+    /// (picked up one by one) instead of a single pile; removes the old pile. Nothing else in the scene changes.
+    /// Saves the scene (with any changes you made).
+    /// </summary>
+    [MenuItem("G7l6/Scatter Dirty Laundry")]
+    public static void ScatterLaundry()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[Laundry] Stop Play mode first."); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != TargetScene)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(TargetScene, OpenSceneMode.Single);
+        }
+        var laundry = Object.FindObjectOfType<LaundryTask>(true);
+        if (!laundry) { Debug.LogWarning("[Laundry] No laundry task in the scene."); return; }
+        string removed = laundry.dirtyClothes ? laundry.dirtyClothes.name : null;
+        if (laundry.dirtyClothes) Undo.DestroyObjectImmediate(laundry.dirtyClothes.gameObject);
+        Undo.RecordObject(laundry, "Scatter laundry");
+        laundry.dirtyClothes = null;
+        laundry.scatterRoom = PlayerRoomName;
+        laundry.clothesLocation = "around your room";
+        if (laundry.pieces <= 0) laundry.pieces = 5;
+        EditorUtility.SetDirty(laundry);
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        Debug.Log($"[Laundry] Dirty clothes now get scattered round your room ({laundry.pieces} pieces)." +
+                  (removed != null ? $" Removed the old pile '{removed}'." : "") + " The scene is saved.");
+    }
+
+    /// <summary>Wardrobe in your room, and clean clothes on the washer.</summary>
     static string LaundryAndWardrobe(HouseLayout layout)
     {
         var room = Find(1, PlayerRoomName);
@@ -1759,17 +1790,12 @@ public static class HouseBuilder
 
         if (!laundry) return "Wardrobe: " + string.Join(", ", notes) + " - no laundry task found";
 
-        // Dirty clothes: a pile on the floor of your room.
-        var oldPile = laundry.dirtyClothes;
-        var pile = Center(1, PlayerRoomName, "clothes_001|clothes_002", 0.55f, 0.62f, 30f);
-        if (pile)
-        {
-            if (oldPile && oldPile.gameObject != pile) Object.DestroyImmediate(oldPile.gameObject);
-            pile.name = "Dirty clothes";
-            laundry.dirtyClothes = HouseTaskSetup.MakeCarryableFor(pile, ItemType.DirtyClothes, "dirty clothes", 0.5f);
-            laundry.clothesLocation = "in your room";
-            notes.Add("dirty clothes pile in your room");
-        }
+        // Dirty clothes: scattered round your room when the laundry starts (no single pile).
+        if (laundry.dirtyClothes) Object.DestroyImmediate(laundry.dirtyClothes.gameObject);
+        laundry.dirtyClothes = null;
+        laundry.scatterRoom = PlayerRoomName;
+        laundry.clothesLocation = "around your room";
+        notes.Add("dirty clothes get scattered round your room");
 
         // Clean clothes: on top of the washer, hidden until the wash is done.
         if (laundry.cleanClothes) Object.DestroyImmediate(laundry.cleanClothes.gameObject);

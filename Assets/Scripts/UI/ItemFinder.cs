@@ -55,6 +55,7 @@ public class ItemFinder : MonoBehaviour
         if (want != showing)
         {
             showing = want;
+            if (showing) items = FindObjectsOfType<Carryable>(true); // things made during the day too (e.g. the laundry armful)
             if (!showing) Hide();
         }
         if (showing) Show();
@@ -71,21 +72,26 @@ public class ItemFinder : MonoBehaviour
         Vector3 me = carry ? carry.transform.position : cam.transform.position;
         int myFloor = layout ? layout.FloorAt(me.y - 1f) : 0;
 
-        int used = 0;
+        // Everything findable: things you can carry, and dirty clothes lying around.
+        targets.Clear();
         foreach (var item in items)
+            if (item && item.gameObject.activeInHierarchy && !(carry && carry.Held == item))
+                targets.Add((item.gameObject, Centre(item.gameObject) + Vector3.up * 0.35f, item.displayName.ToUpperInvariant(), item.TakenBy != null));
+        foreach (var piece in DirtyClothesPiece.All)
+            if (piece) targets.Add((piece.gameObject, piece.transform.position + Vector3.up * 0.4f, "DIRTY " + piece.kind.ToUpperInvariant(), false));
+
+        int used = 0;
+        foreach (var (target, at, name, withCat) in targets)
         {
-            if (!item || !item.gameObject.activeInHierarchy || (carry && carry.Held == item)) continue;
-            Glow(item, true);
+            Glow(target, true);
 
             if (used >= labels.Count) labels.Add(NewLabel());
             var label = labels[used++];
             label.root.gameObject.SetActive(true);
 
-            Vector3 at = Centre(item) + Vector3.up * 0.35f;
             float metres = Vector3.Distance(me, at);
             int floor = layout ? layout.FloorAt(at.y - 0.3f) : myFloor;
-            string name = item.displayName.ToUpperInvariant();
-            label.text.text = item.TakenBy ? $"{name}  <size=80%>(the cat has it!)</size>" : $"{name}  <size=80%>{Mathf.RoundToInt(metres)}m</size>";
+            label.text.text = withCat ? $"{name}  <size=80%>(the cat has it!)</size>" : $"{name}  <size=80%>{Mathf.RoundToInt(metres)}m</size>";
 
             bool otherFloor = floor != myFloor;
             label.upDown.gameObject.SetActive(otherFloor);
@@ -133,10 +139,13 @@ public class ItemFinder : MonoBehaviour
     void Hide()
     {
         foreach (var l in labels) l.root.gameObject.SetActive(false);
-        foreach (var item in items) if (item) Glow(item, false);
+        foreach (var item in items) if (item) Glow(item.gameObject, false);
+        foreach (var piece in DirtyClothesPiece.All) if (piece) Glow(piece.gameObject, false);
     }
 
-    void Glow(Carryable item, bool on)
+    readonly List<(GameObject target, Vector3 at, string name, bool withCat)> targets = new List<(GameObject, Vector3, string, bool)>();
+
+    void Glow(GameObject item, bool on)
     {
         var outline = item.GetComponent<Outline>();
         if (!outline) return;
@@ -156,7 +165,7 @@ public class ItemFinder : MonoBehaviour
         }
     }
 
-    static Vector3 Centre(Carryable item)
+    static Vector3 Centre(GameObject item)
     {
         bool found = false;
         Bounds b = default;

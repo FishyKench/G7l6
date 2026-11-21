@@ -14,6 +14,16 @@ public abstract class VRFighter : MonoBehaviour
 
     public float Health { get; protected set; } = 100f;
     public bool Alive => Health > 0f;
+    /// <summary>When this fighter was last hurt (health comes back on its own a few seconds later).</summary>
+    public float LastHurtAt { get; private set; } = -100f;
+    public float regenDelay = 4.5f, regenPerSecond = 30f;
+
+    /// <summary>Health creeps back after a few seconds without getting hit. Call every frame.</summary>
+    protected void Regenerate(float dt)
+    {
+        if (Alive && Health < maxHealth && Time.time - LastHurtAt > regenDelay)
+            Health = Mathf.Min(maxHealth, Health + regenPerSecond * dt);
+    }
 
     /// <summary>Where shots aim (chest).</summary>
     public virtual Vector3 AimPoint => transform.position + Vector3.up * 1.15f;
@@ -36,6 +46,7 @@ public abstract class VRFighter : MonoBehaviour
     {
         if (!Alive || amount <= 0f || !CanBeHurt) return;
         Health = Mathf.Max(0f, Health - amount);
+        LastHurtAt = Time.time;
         OnHurt(amount, from, headshot);
         if (!Alive)
         {

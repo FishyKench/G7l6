@@ -12,6 +12,7 @@ Shader "G7l6/Projected Screen"
         _AxisV ("Bottom to top (model space)", Vector) = (0, 1, 0, 0)
         _Range ("Min U, size U, min V, size V", Vector) = (0, 1, 0, 1)
         _Noise ("Static: x = frames per second, y = tiling (0 = off)", Vector) = (0, 0, 0, 0)
+        _Collapse ("Switching off: x = height, y = width, z = flash (1, 1, 0 = on)", Vector) = (1, 1, 0, 0)
     }
     SubShader
     {
@@ -28,7 +29,7 @@ Shader "G7l6/Projected Screen"
             sampler2D _MainTex;
             fixed4 _Tint;
             float _Brightness;
-            float4 _AxisU, _AxisV, _Range, _Noise;
+            float4 _AxisU, _AxisV, _Range, _Noise, _Collapse;
 
             struct v2f
             {
@@ -48,6 +49,7 @@ Shader "G7l6/Projected Screen"
             fixed4 frag (v2f i) : SV_Target
             {
                 float2 uv = i.uv;
+                fixed4 col;
                 if (_Noise.x > 0)
                 {
                     // TV static: jump to a random part of the noise picture many times a second.
@@ -56,10 +58,20 @@ Shader "G7l6/Projected Screen"
                     uv = uv * _Noise.y + jump;
                     // A faint rolling bar, like an old screen.
                     float roll = frac(i.uv.y * 2.0 - _Time.y * 0.6);
-                    fixed4 c = tex2D(_MainTex, uv) * _Tint;
-                    return c * _Brightness * (0.85 + 0.15 * smoothstep(0.0, 0.1, roll));
+                    col = tex2D(_MainTex, uv) * _Tint * _Brightness * (0.85 + 0.15 * smoothstep(0.0, 0.1, roll));
                 }
-                return tex2D(_MainTex, uv) * _Tint * _Brightness;
+                else col = tex2D(_MainTex, uv) * _Tint * _Brightness;
+
+                // Switching off like an old TV: the picture flashes white and squashes to a line, then a dot.
+                if (_Collapse.x < 0.999 || _Collapse.y < 0.999 || _Collapse.z > 0.001)
+                {
+                    col = lerp(col, fixed4(1, 1, 1, 1) * 1.8, _Collapse.z);
+                    float2 c = abs(i.uv - 0.5);
+                    float h = max(_Collapse.x, 0.008) * 0.5, w = _Collapse.y * 0.5;
+                    float inside = (1 - smoothstep(h, h + 0.006, c.y)) * (1 - smoothstep(w, w + 0.006, c.x));
+                    col *= inside;
+                }
+                return col;
             }
             ENDCG
         }

@@ -317,7 +317,7 @@ public class PCDesktop : MonoBehaviour
         title.text = "<b>RANKED ARENA</b>";
         UIFactory.Place(title.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 170), new Vector2(1200, 110));
         var sub = UIFactory.Text("Sub", content, 24, new Color(1f, 1f, 1f, 0.7f), TextAlignmentOptions.Center);
-        sub.text = "3v3 arena shooter  -  VR";
+        sub.text = "8v8 Domination  -  capture A, B, C  -  VR";
         UIFactory.Place(sub.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 105), new Vector2(800, 34));
         launcherStatus = UIFactory.Text("Status", content, 26, new Color32(255, 120, 200, 255), TextAlignmentOptions.Center);
         UIFactory.Place(launcherStatus.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 55), new Vector2(900, 36));

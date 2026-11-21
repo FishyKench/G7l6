@@ -330,6 +330,21 @@ public class MiniMap : MonoBehaviour
             int f = layout.FloorAt(task.Where.y - 0.2f);
             if (f < perFloor.Length) perFloor[f]++;
 
+            // Dirty clothes lying around: pin the nearest piece.
+            if (task is LaundryTask laundry && laundry.PiecesLeft > 0)
+            {
+                DirtyClothesPiece nearest = null;
+                float best = float.MaxValue;
+                foreach (var piece in laundry.Pieces)
+                {
+                    if (!piece) continue;
+                    float d = (piece.transform.position - player.position).sqrMagnitude;
+                    if (d < best) { best = d; nearest = piece; }
+                }
+                if (nearest) entries.Add(new Entry { number = number, world = nearest.transform.position, color = ToolColor, name = $"dirty clothes ({laundry.PiecesLeft} left)", tool = true });
+                continue;
+            }
+
             var need = Needs(task);
             if (need == null) continue;
             foreach (var item in items)

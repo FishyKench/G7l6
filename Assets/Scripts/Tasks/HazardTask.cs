@@ -36,7 +36,7 @@ public abstract class HazardTask : TaskBase, IInteractable, IPromptProvider
     public override float Progress => clearing ? clearTimer / clearDuration : 0f;
     public override string Status => clearing ? "Clearing..." : $"Get the {requiredItemName}!";
 
-    public string Prompt
+    public virtual string Prompt
     {
         get
         {
@@ -45,7 +45,7 @@ public abstract class HazardTask : TaskBase, IInteractable, IPromptProvider
         }
     }
 
-    public void Interact()
+    public virtual void Interact()
     {
         if (!IsActive || clearing) return;
         if (!PlayerHolds(requiredItem))

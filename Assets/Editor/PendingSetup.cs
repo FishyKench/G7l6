@@ -15,6 +15,10 @@ using UnityEngine;
 ///   ranked-match.request - your gaming desk gets the ranked match, homework moves to the office desk
 ///   vr-match.request - builds the VR arena scene and puts the VR headset (the ranked match) on your desk
 ///   finish-house.request - plank floors, wall joints, skirting boards, wardrobe + laundry pile in your room
+///   scatter-laundry.request - dirty clothes become pieces scattered round your room (removes the old pile)
+///   stairs.request - rebuilds only the stairs (flights, landings, top-floor balustrade); nothing else
+///   entry-floor.request - limestone floor in the entrance + the TV remote held the right way round
+///   vr-arena.request - rebuilds only the VR arena map (Neon District, 8v8 Domination); the house isn't touched
 /// </summary>
 [InitializeOnLoad]
 static class PendingSetup
@@ -29,6 +33,10 @@ static class PendingSetup
     const string MatchRequest = "Library/G7l6/ranked-match.request";
     const string VRRequest = "Library/G7l6/vr-match.request";
     const string FinishRequest = "Library/G7l6/finish-house.request";
+    const string ScatterRequest = "Library/G7l6/scatter-laundry.request";
+    const string ArenaRequest = "Library/G7l6/vr-arena.request";
+    const string StairsRequest = "Library/G7l6/stairs.request";
+    const string EntryRequest = "Library/G7l6/entry-floor.request";
     const double GiveUpAfterSeconds = 120;
 
     static double startedAt;
@@ -37,7 +45,7 @@ static class PendingSetup
     static PendingSetup()
     {
         if (!File.Exists(AddCatRequest) && !File.Exists(CatSizeRequest) && !File.Exists(FixStairsRequest) && !File.Exists(CatOverhaulRequest)
-            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest) && !File.Exists(MatchRequest) && !File.Exists(VRRequest) && !File.Exists(FinishRequest)) return;
+            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest) && !File.Exists(MatchRequest) && !File.Exists(VRRequest) && !File.Exists(FinishRequest) && !File.Exists(ScatterRequest) && !File.Exists(ArenaRequest) && !File.Exists(StairsRequest) && !File.Exists(EntryRequest)) return;
         startedAt = EditorApplication.timeSinceStartup;
         EditorApplication.update += Poll;
     }
@@ -58,7 +66,11 @@ static class PendingSetup
         bool match = File.Exists(MatchRequest);
         bool vr = File.Exists(VRRequest);
         bool finish = File.Exists(FinishRequest);
-        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders && !match && !vr && !finish) { EditorApplication.update -= Poll; return; }
+        bool scatter = File.Exists(ScatterRequest);
+        bool arenaMap = File.Exists(ArenaRequest);
+        bool newStairs = File.Exists(StairsRequest);
+        bool entry = File.Exists(EntryRequest);
+        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders && !match && !vr && !finish && !scatter && !arenaMap && !newStairs && !entry) { EditorApplication.update -= Poll; return; }
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
 
         // Wait for the cat model to finish importing.
@@ -125,6 +137,26 @@ static class PendingSetup
         {
             File.Delete(FinishRequest);
             HouseBuilder.FinishHouse();
+        }
+        if (scatter)
+        {
+            File.Delete(ScatterRequest);
+            HouseBuilder.ScatterLaundry();
+        }
+        if (arenaMap)
+        {
+            File.Delete(ArenaRequest);
+            VRArenaBuilder.RebuildArena();
+        }
+        if (newStairs)
+        {
+            File.Delete(StairsRequest);
+            StairsBuilder.Rebuild();
+        }
+        if (entry)
+        {
+            File.Delete(EntryRequest);
+            EntryFloorBuilder.Apply();
         }
     }
 }

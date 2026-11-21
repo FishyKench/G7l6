@@ -1,8 +1,10 @@
+using System.Collections;
 using UnityEngine;
 
 /// <summary>
 /// A TV randomly switches to loud static. Stress keeps rising until the player turns it off
-/// with the TV remote (pick the remote up, then press E on the TV).
+/// with the TV remote (pick the remote up, then press E on the TV): you raise the remote, click it (its light
+/// blinks) and the TV switches off like an old set - the picture flashes and squashes into a line, then a dot.
 /// Put one on each TV - the GameManager picks which one goes off.
 /// </summary>
 public class TvTask : TaskBase, IInteractable, IPromptProvider
@@ -21,6 +23,8 @@ public class TvTask : TaskBase, IInteractable, IPromptProvider
 
     Material originalMaterial;
     Material projectedStatic; // the static, projected across the whole screen (see BuildOverlay)
+    bool switching;
+    float soundVolume = -1f;
 
     void Reset()
     {
@@ -59,20 +63,110 @@ public class TvTask : TaskBase, IInteractable, IPromptProvider
     {
         get
         {
-            if (!IsActive) return null;
+            if (!IsActive || switching) return null;
             return needsRemote && !PlayerHolds(ItemType.Remote) ? "TV - needs the remote" : "Turn off TV";
         }
     }
 
     public void Interact()
     {
-        if (!IsActive) return;
+        if (!IsActive || switching) return;
         if (needsRemote && !PlayerHolds(ItemType.Remote))
         {
             GameHUD.Toast("Find the TV remote!", GameHUD.Warn);
             return;
         }
-        Complete("Peace and quiet.");
+        StartCoroutine(SwitchOff());
+    }
+
+    /// <summary>Raise the remote at the TV, click, and the TV switches off.</summary>
+    IEnumerator SwitchOff()
+    {
+        switching = true;
+        var motion = PlayerHolds(ItemType.Remote) ? HeldItemMotion.Get() : null;
+        var hold = PlayerCarry.Instance ? PlayerCarry.Instance.holdPoint : null;
+
+        // 1. Raise it and point it at the screen.
+        for (float t = 0f; t < 0.2f; t += Time.deltaTime)
+        {
+            if (motion) motion.Pose(new Vector3(-0.2f, 0.13f, 0.08f), AimAtTv(), 0.05f);
+            yield return null;
+        }
+
+        // 2. Click: the thumb pushes the remote down a touch, and its light blinks.
+        if (hold) Fx.Play(Fx.Click, hold.position, 0.9f, Random.Range(0.95f, 1.08f));
+        if (hold) StartCoroutine(Blink(hold));
+        for (float t = 0f; t < 0.1f; t += Time.deltaTime)
+        {
+            if (motion) motion.Pose(new Vector3(-0.2f, 0.1f, 0.1f), AimAtTv() + new Vector3(10f, 0f, 0f), 0.025f);
+            yield return null;
+        }
+
+        // 3. The screen collapses like an old TV.
+        Fx.Play(Fx.TvOff, screenRenderer ? screenRenderer.bounds.center : transform.position, 0.8f);
+        var mat = projectedStatic;
+        float startPitch = staticSound ? staticSound.pitch : 1f;
+        for (float t = 0f; t < 0.42f; t += Time.deltaTime)
+        {
+            if (motion) motion.Pose(new Vector3(-0.2f, 0.12f, 0.08f), AimAtTv(), 0.06f);
+            float squash = Mathf.Clamp01(t / 0.13f);
+            float shrink = Mathf.Clamp01((t - 0.13f) / 0.17f);
+            float fade = Mathf.Clamp01((t - 0.3f) / 0.12f);
+            if (mat) mat.SetVector("_Collapse", new Vector4(Mathf.Lerp(1f, 0.012f, squash * squash), Mathf.Lerp(1f, 0.012f, shrink), Mathf.Min(1f, squash * 1.3f) * (1f - fade), 0f));
+            if (staticSound)
+            {
+                staticSound.pitch = Mathf.Lerp(startPitch, 0.35f, squash);
+                staticSound.volume = (soundVolume < 0f ? 1f : soundVolume) * (1f - squash);
+            }
+            yield return null;
+        }
+        switching = false;
+        if (IsActive) Complete("Peace and quiet.");
+    }
+
+    /// <summary>The turn that points the held remote at the TV (from the hold point, in camera space).</summary>
+    Vector3 AimAtTv()
+    {
+        var hold = PlayerCarry.Instance ? PlayerCarry.Instance.holdPoint : null;
+        var cam = Camera.main;
+        if (!hold || !cam) return Vector3.zero;
+        Vector3 target = screenRenderer ? screenRenderer.bounds.center : transform.position;
+        Vector3 d = cam.transform.InverseTransformDirection(target - hold.position);
+        float yaw = Mathf.Clamp(Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg, -35f, 35f);
+        float pitch = Mathf.Clamp(-Mathf.Atan2(d.y, new Vector2(d.x, d.z).magnitude) * Mathf.Rad2Deg, -30f, 30f);
+        return new Vector3(pitch - 8f, yaw, 0f);
+    }
+
+    /// <summary>The remote's little red light blinks.</summary>
+    static IEnumerator Blink(Transform hold)
+    {
+        var cam = Camera.main;
+        var led = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        Destroy(led.GetComponent<Collider>());
+        led.name = "Remote light";
+        led.transform.SetParent(hold, false);
+        led.transform.position = hold.position + (cam ? cam.transform.forward : hold.forward) * 0.14f + Vector3.up * 0.015f;
+        led.transform.localScale = Vector3.one * 0.018f / Mathf.Max(0.0001f, hold.lossyScale.x);
+        var m = new Material(Shader.Find("Standard")) { color = new Color(1f, 0.15f, 0.1f) };
+        m.EnableKeyword("_EMISSION");
+        m.SetColor("_EmissionColor", new Color(1f, 0.1f, 0.05f) * 4f);
+        var r = led.GetComponent<Renderer>();
+        r.sharedMaterial = m;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        var light = led.AddComponent<Light>();
+        light.type = LightType.Point;
+        light.color = new Color(1f, 0.2f, 0.1f);
+        light.range = 0.5f;
+        light.intensity = 3f;
+        for (int i = 0; i < 2; i++)
+        {
+            led.SetActive(true);
+            yield return new WaitForSeconds(0.06f);
+            led.SetActive(false);
+            yield return new WaitForSeconds(0.05f);
+        }
+        Destroy(led);
+        Destroy(m);
     }
 
     protected override void OnActivated() => SetStatic(true);
@@ -83,10 +177,17 @@ public class TvTask : TaskBase, IInteractable, IPromptProvider
     }
 
     protected override void OnCompleted() => SetStatic(false);
-    protected override void OnFailed() => SetStatic(false);
+    protected override void OnFailed() { switching = false; SetStatic(false); }
 
     void SetStatic(bool on)
     {
+        if (projectedStatic) projectedStatic.SetVector("_Collapse", new Vector4(1f, 1f, 0f, 0f));
+        if (staticSound)
+        {
+            if (soundVolume < 0f) soundVolume = staticSound.volume;
+            staticSound.volume = soundVolume;
+            staticSound.pitch = 1f;
+        }
         if (screenRenderer && ValidSlot())
         {
             var mats = screenRenderer.sharedMaterials;

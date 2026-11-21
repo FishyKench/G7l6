@@ -140,14 +140,14 @@ public class VRPlayer : VRFighter
         GunPart(new Vector3(0f, 0f, 0.02f), new Vector3(0.07f, 0.09f, 0.55f), dark);          // body
         GunPart(new Vector3(0f, -0.09f, -0.07f), new Vector3(0.05f, 0.15f, 0.07f), mid);      // grip
         GunPart(new Vector3(0f, -0.07f, 0.12f), new Vector3(0.045f, 0.13f, 0.08f), mid);      // magazine
-        GunPart(new Vector3(0f, 0.055f, 0.08f), new Vector3(0.03f, 0.025f, 0.3f), neon);      // glow strip
+        GunPart(new Vector3(0.036f, 0.005f, 0.08f), new Vector3(0.004f, 0.018f, 0.3f), neon);   // glow strips on the sides
+        GunPart(new Vector3(-0.036f, 0.005f, 0.08f), new Vector3(0.004f, 0.018f, 0.3f), neon);
         GunPart(new Vector3(0f, -0.015f, 0.34f), new Vector3(0.035f, 0.035f, 0.16f), dark);   // barrel
         GunPart(new Vector3(0f, 0.02f, -0.27f), new Vector3(0.06f, 0.1f, 0.14f), mid);        // stock
-        // Red-dot sight on top (what you look through when aiming).
-        GunPart(new Vector3(0f, 0.085f, -0.02f), new Vector3(0.05f, 0.012f, 0.09f), dark);
-        GunPart(new Vector3(0f, 0.115f, -0.05f), new Vector3(0.05f, 0.05f, 0.012f), dark);
-        GunPart(new Vector3(0f, 0.115f, 0.01f), new Vector3(0.05f, 0.05f, 0.012f), dark);
-        GunPart(new Vector3(0f, 0.115f, -0.05f), new Vector3(0.008f, 0.008f, 0.004f), VRArena.Glow(Color.red, Color.red, 6f));
+        // Red-dot sight on top: a base and two open frames you look THROUGH when aiming (the dot is on the HUD).
+        GunPart(new Vector3(0f, 0.052f, -0.02f), new Vector3(0.05f, 0.012f, 0.09f), dark);
+        SightFrame(new Vector3(0f, 0.115f, -0.055f), 0.056f, 0.006f, dark);
+        SightFrame(new Vector3(0f, 0.115f, 0.015f), 0.06f, 0.007f, dark);
 
         muzzle = new GameObject("Muzzle").transform;
         muzzle.SetParent(gun, false);
@@ -169,6 +169,19 @@ public class VRPlayer : VRFighter
 
     static readonly Vector3 HipPosition = new Vector3(0.22f, -0.2f, 0.42f);
     static readonly Vector3 AimPosition = new Vector3(0f, -0.115f, 0.3f);
+
+    /// <summary>A square ring (four thin bars) - see-through in the middle.</summary>
+    void SightFrame(Vector3 centre, float size, float bar, Material m)
+    {
+        float h = size * 0.5f - bar * 0.5f;
+        GunPart(centre + new Vector3(0f, h, 0f), new Vector3(size, bar, 0.008f), m);
+        GunPart(centre + new Vector3(0f, -h, 0f), new Vector3(size, bar, 0.008f), m);
+        GunPart(centre + new Vector3(h, 0f, 0f), new Vector3(bar, size, 0.008f), m);
+        GunPart(centre + new Vector3(-h, 0f, 0f), new Vector3(bar, size, 0.008f), m);
+        // Posts holding the frame up off the base.
+        GunPart(centre + new Vector3(h, -size * 0.5f - 0.01f, 0f), new Vector3(bar, 0.02f, 0.008f), m);
+        GunPart(centre + new Vector3(-h, -size * 0.5f - 0.01f, 0f), new Vector3(bar, 0.02f, 0.008f), m);
+    }
 
     void GunPart(Vector3 pos, Vector3 size, Material m)
     {
@@ -233,6 +246,7 @@ public class VRPlayer : VRFighter
             return;
         }
         gunHolder.gameObject.SetActive(true);
+        Regenerate(dt);
 
         if (vaulting) { VaultStep(dt); CameraFeel(dt, 0f, true); return; }
 

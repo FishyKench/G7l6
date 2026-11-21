@@ -9,9 +9,10 @@ using UnityEngine.SceneManagement;
 /// Both worlds run at the same time - 30 seconds in VR are 30 seconds in the house. Esc takes the headset off;
 /// P pauses everything. Your body stays at the desk.
 ///
-/// At 4:00 PM a best-of-5 match starts (50 s rounds, 15 s breaks): first-person 3v3, you + 2 bots vs 3 bots.
-/// Rounds start whether you're wearing the headset or not - without you, your avatar stands there AFK and your
-/// team fights 2v3 (they can win, but rarely). Before 4:00 the arena has a warm-up with targets.
+/// At 4:00 PM a best-of-5 match starts (55 s rounds, 15 s breaks). Each round is 8v8 DOMINATION: you, your friend
+/// Jay and 6 bots against 8 enemy bots, fighting over capture points A, B and C (see VRArena). The enemy gets
+/// sharper every round. Rounds start whether you're wearing the headset or not - without you, your avatar stands
+/// at spawn AFK and your team plays 7v8. Before 4:00 the arena has a warm-up 8v8 team deathmatch.
 /// Winning rounds calms you down, losing them stresses you out. At 6:00 Mom pulls the headset off.
 /// </summary>
 public class MatchTask : TaskBase, IMainTask, IPromptProvider
@@ -24,7 +25,9 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
     [Header("Match")]
     public float matchStartHour = 16f;
     public int roundsToWin = 3;
-    public float roundSeconds = 50f;
+    public float roundLength = 55f;
+    [Tooltip("Domination: points to win a round (each held point scores 1.5 a second).")]
+    public float scoreLimit = 100f;
     public float breakSeconds = 15f;
     [Tooltip("If there's no day clock: seconds after the start before the match begins.")]
     public float fallbackStartDelay = 120f;
@@ -32,16 +35,19 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
 
     [Header("Enemy bots")]
     [Tooltip("Degrees their shots can miss by in round 1 (lower = better aim).")]
-    public float enemySpread = 7f;
-    public float enemySpreadPerRound = 0.8f;
-    public float enemyFireRate = 3f;
-    public float enemyDamage = 7f;
-    public float enemyReaction = 0.5f;
+    public float enemyMissDegrees = 2.2f;
+    public float enemyMissPerRound = 0.35f;
+    public float enemyShotsPerSecond = 7f;
+    public float enemyHitDamage = 10f;
+    public float enemyReactTime = 0.45f;
+    [Tooltip("Seconds an enemy needs to track you before its aim settles.")]
+    public float enemyAimSettle = 0.9f;
 
     [Header("Your bot teammates")]
-    public float allySpread = 8.5f;
-    public float allyFireRate = 2.6f;
-    public float allyDamage = 6f;
+    public float allyMissDegrees = 2.6f;
+    public float allyShotsPerSecond = 6.5f;
+    public float allyHitDamage = 9f;
+    public float allyReactTime = 0.55f;
 
     public enum Phase { Waiting, Round, Break, Over }
     public Phase State { get; private set; }
@@ -253,18 +259,23 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
         State = Phase.Round;
         saidAfk = false;
         afkFor = 0f;
+        int r = RoundNumber - 1;
         arena.StartRound(new VRArena.RoundSettings
         {
-            seconds = roundSeconds,
-            enemySpread = Mathf.Max(2.5f, enemySpread - enemySpreadPerRound * (RoundNumber - 1)),
-            enemyFireRate = enemyFireRate,
-            enemyDamage = enemyDamage,
-            enemyReaction = enemyReaction,
-            allySpread = allySpread,
-            allyFireRate = allyFireRate,
-            allyDamage = allyDamage,
+            seconds = roundLength,
+            scoreLimit = scoreLimit,
+            enemySpread = Mathf.Max(1.8f, enemyMissDegrees - enemyMissPerRound * r),
+            enemyFireRate = enemyShotsPerSecond,
+            enemyDamage = enemyHitDamage + r * 0.5f,
+            enemyReaction = Mathf.Max(0.25f, enemyReactTime - r * 0.04f),
+            enemyAimSettle = Mathf.Max(0.5f, enemyAimSettle - r * 0.08f),
+            allySpread = allyMissDegrees,
+            allyFireRate = allyShotsPerSecond,
+            allyDamage = allyHitDamage,
+            allyReaction = allyReactTime,
         });
         arena.Hud.Announce($"ROUND {RoundNumber}", 1.6f);
+        arena.Hud.Notice("DOMINATION - CAPTURE A, B AND C", Color.white);
         arena.Hud.Chat("Jay", Random.value < 0.5f ? "gl hf" : "we got this");
         if (!inVR && RoundNumber > 1) GameHUD.Toast($"Round {RoundNumber} started without you!", GameHUD.Warn);
     }
