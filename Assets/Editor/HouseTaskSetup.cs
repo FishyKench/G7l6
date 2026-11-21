@@ -636,6 +636,16 @@ public static class HouseTaskSetup
 
     // ------------------------------------------------------------------ tasks
 
+    /// <summary>
+    /// The ranked match lives on your gaming PC desk; homework moves to another desk (Mom's office), so the two
+    /// things you need to do pull you to different places. Returns a short report.
+    /// </summary>
+    internal static string SetUpMatchAndHomework(GameObject gamingDesk, GameObject homeworkDesk)
+    {
+        // Both now live on the gaming PC (see VRArenaBuilder.SetUpGamingPC).
+        return VRArenaBuilder.SetUpGamingPC();
+    }
+
     /// <summary>Used when your room is redone: homework moves to the new desk.</summary>
     internal static string SetUpHomeworkDesk(GameObject desk)
     {
@@ -1373,6 +1383,9 @@ public static class HouseTaskSetup
         }
         return go && go.transform.parent ? $"'{go.transform.parent.name}'" : "the house";
     }
+
+    internal static Carryable MakeCarryableFor(GameObject go, ItemType type, string displayName, float heldSize) =>
+        MakeCarryable(go, type, displayName, heldSize);
 
     static T Ensure<T>(GameObject go) where T : Component
     {

@@ -12,6 +12,9 @@ using UnityEngine;
 ///   fix-stairs.request - smooth ramp over the stairs + re-bake the cat's walk map
 ///   player-room.request - redo just your bedroom as the gaming room (the rest of NewHouse stays)
 ///   fix-colliders.request - snug furniture colliders in NewHouse (nothing else changes)
+///   ranked-match.request - your gaming desk gets the ranked match, homework moves to the office desk
+///   vr-match.request - builds the VR arena scene and puts the VR headset (the ranked match) on your desk
+///   finish-house.request - plank floors, wall joints, skirting boards, wardrobe + laundry pile in your room
 /// </summary>
 [InitializeOnLoad]
 static class PendingSetup
@@ -23,6 +26,9 @@ static class PendingSetup
     const string BuildHouseRequest = "Library/G7l6/build-house.request";
     const string PlayerRoomRequest = "Library/G7l6/player-room.request";
     const string CollidersRequest = "Library/G7l6/fix-colliders.request";
+    const string MatchRequest = "Library/G7l6/ranked-match.request";
+    const string VRRequest = "Library/G7l6/vr-match.request";
+    const string FinishRequest = "Library/G7l6/finish-house.request";
     const double GiveUpAfterSeconds = 120;
 
     static double startedAt;
@@ -31,7 +37,7 @@ static class PendingSetup
     static PendingSetup()
     {
         if (!File.Exists(AddCatRequest) && !File.Exists(CatSizeRequest) && !File.Exists(FixStairsRequest) && !File.Exists(CatOverhaulRequest)
-            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest)) return;
+            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest) && !File.Exists(MatchRequest) && !File.Exists(VRRequest) && !File.Exists(FinishRequest)) return;
         startedAt = EditorApplication.timeSinceStartup;
         EditorApplication.update += Poll;
     }
@@ -49,7 +55,10 @@ static class PendingSetup
         bool buildHouse = File.Exists(BuildHouseRequest);
         bool playerRoom = File.Exists(PlayerRoomRequest);
         bool colliders = File.Exists(CollidersRequest);
-        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders) { EditorApplication.update -= Poll; return; }
+        bool match = File.Exists(MatchRequest);
+        bool vr = File.Exists(VRRequest);
+        bool finish = File.Exists(FinishRequest);
+        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders && !match && !vr && !finish) { EditorApplication.update -= Poll; return; }
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
 
         // Wait for the cat model to finish importing.
@@ -101,6 +110,21 @@ static class PendingSetup
         {
             File.Delete(CollidersRequest);
             HouseBuilder.FixFurnitureColliders();
+        }
+        if (match)
+        {
+            File.Delete(MatchRequest);
+            HouseBuilder.SetUpRankedMatch();
+        }
+        if (vr)
+        {
+            File.Delete(VRRequest);
+            VRArenaBuilder.SetUp();
+        }
+        if (finish)
+        {
+            File.Delete(FinishRequest);
+            HouseBuilder.FinishHouse();
         }
     }
 }

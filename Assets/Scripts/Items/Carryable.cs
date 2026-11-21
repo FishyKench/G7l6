@@ -7,6 +7,7 @@ public enum ItemType
     Extinguisher,
     Mop,
     Bucket,
+    CleanClothes,
 }
 
 /// <summary>

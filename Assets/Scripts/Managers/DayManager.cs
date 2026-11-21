@@ -22,7 +22,7 @@ public class DayManager : MonoBehaviour
     public float startHour = 15f;
     public float endHour = 18f;
     [Tooltip("How long the whole afternoon lasts in real minutes.")]
-    public float realMinutes = 8f;
+    public float realMinutes = 10f;
 
     [Header("Mom's texts (hour -> message)")]
     public List<Text> texts = new List<Text>
@@ -96,7 +96,7 @@ public class DayManager : MonoBehaviour
 
     void OnTaskEnded(TaskBase task, bool success)
     {
-        if (State == Phase.Report) return;
+        if (State == Phase.Report || task is MatchTask) return; // the match is scored on its own
         if (success) ChoresDone++;
         else
         {
@@ -156,6 +156,7 @@ public class DayManager : MonoBehaviour
         State = Phase.MomHome;
         if (GameManager.Instance) GameManager.Instance.spawningPaused = true;
         GameHUD.Toast("Mom's home!", GameHUD.Warn);
+        MatchTask.TakeOffHeadset("Mom pulls your VR headset off!");
 
         var garage = FindObjectOfType<GarageDoor>();
         if (garage) garage.SetOpen(true);
@@ -172,6 +173,12 @@ public class DayManager : MonoBehaviour
         EndDay();
     }
 
+    /// <summary>A text message notification from someone (e.g. "MOM", or your friend about the match).</summary>
+    public void SendText(string from, string message)
+    {
+        if (hud) hud.Text(from, message);
+    }
+
     /// <summary>Called by the stress meter when it fills up.</summary>
     public void HaveMeltdown()
     {
@@ -186,6 +193,7 @@ public class DayManager : MonoBehaviour
     void EndDay()
     {
         if (State == Phase.Report) return;
+        MatchTask.TakeOffHeadset(null);
         State = Phase.Report;
         if (GameManager.Instance) GameManager.Instance.spawningPaused = true;
         var report = Grade();
@@ -232,7 +240,7 @@ public class DayManager : MonoBehaviour
         var carry = PlayerCarry.Instance;
         foreach (var item in FindObjectsOfType<Carryable>())
         {
-            if (!item || item.type == ItemType.DirtyClothes || !item.gameObject.activeInHierarchy) continue;
+            if (!item || item.type == ItemType.DirtyClothes || item.type == ItemType.CleanClothes || !item.gameObject.activeInHierarchy) continue;
             bool held = carry && carry.Held == item;
             if (!held && item.IsHome) continue;
             list.Add(new Finding
@@ -248,9 +256,11 @@ public class DayManager : MonoBehaviour
 
     static Finding FindingFor(TaskBase task)
     {
-        var f = new Finding { where = task.transform.position };
+        var f = new Finding { where = task.Where };
         switch (task)
         {
+            case MatchTask _:
+                return null; // Mom doesn't grade your match
             case TypingTask homework:
                 f.what = "Homework not finished";
                 f.line = "Homework. Not. Done.";
@@ -280,6 +290,10 @@ public class DayManager : MonoBehaviour
         public int stress, stressPenalty;
         public int score;
         public string grade, momSays;
+        /// <summary>The ranked match: "WON 3-1", "LOST 1-3", "unfinished 1-1", "never showed up"; null if there's no match.</summary>
+        public string match;
+        public int rankPoints;
+        public bool matchWon;
     }
 
     Report Grade()
@@ -298,6 +312,16 @@ public class DayManager : MonoBehaviour
             r.homeworkPoints = finished || alreadyFound ? 0 : Mathf.RoundToInt(30f * (1f - (float)typed / pages));
         }
         else r.homework = "-";
+
+        var match = FindObjectOfType<MatchTask>();
+        if (match)
+        {
+            r.rankPoints = match.RankPoints;
+            r.matchWon = match.State == MatchTask.Phase.Over && match.Wins >= match.roundsToWin;
+            r.match = match.State == MatchTask.Phase.Over ? $"{(r.matchWon ? "WON" : "LOST")} {match.Wins}-{match.Losses}"
+                    : match.State == MatchTask.Phase.Waiting ? "never started"
+                    : $"unfinished {match.Wins}-{match.Losses}";
+        }
 
         r.done = ChoresDone;
         r.failed = ChoresFailed;

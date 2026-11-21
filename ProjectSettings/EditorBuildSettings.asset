@@ -14,4 +14,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/NewHouse.unity
     guid: 2c0943620f6b64d43acbc2510bdd62fe
+  - enabled: 1
+    path: Assets/Scenes/VRArena.unity
+    guid: e56972bbf2a9df9408ae772e47077d53
   m_configObjects: {}

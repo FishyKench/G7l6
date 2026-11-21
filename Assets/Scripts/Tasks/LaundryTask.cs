@@ -7,11 +7,14 @@ using UnityEngine;
 /// </summary>
 public class LaundryTask : TaskBase, IInteractable, IPromptProvider
 {
-    enum Phase { WaitingForClothes, Washing, Done }
+    enum Phase { WaitingForClothes, Washing, Done, PutAway }
 
     [Header("Laundry")]
     [Tooltip("The dirty clothes pile. Hidden until the task starts.")]
     public Carryable dirtyClothes;
+    [Tooltip("Clean clothes you take out of the washer and put away in the wardrobe. Empty = taking the laundry out finishes it.")]
+    public Carryable cleanClothes;
+    public Wardrobe wardrobe;
     [Tooltip("Where the clothes are, for the HUD: \"Dirty clothes are ...\" (e.g. \"upstairs\", \"in the kid's room\").")]
     public string clothesLocation = "upstairs";
     public float washTime = 35f;
@@ -42,6 +45,7 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
     void Start()
     {
         if (dirtyClothes) dirtyClothes.ReturnHome(false);
+        if (cleanClothes) cleanClothes.ReturnHome(false);
         SetRunning(false);
     }
 
@@ -57,6 +61,7 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
             {
                 case Phase.Washing: return $"Washing... {Seconds(washTime - washTimer)}";
                 case Phase.Done: return "Done! Take it out before it overflows";
+                case Phase.PutAway: return PlayerHolds(ItemType.CleanClothes) ? "Put the clean clothes in your wardrobe" : "The clean clothes go in your wardrobe";
                 default: return PlayerHolds(ItemType.DirtyClothes) ? "Take the clothes to the washer" : "Dirty clothes are " + clothesLocation;
             }
         }
@@ -71,6 +76,7 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
             {
                 case Phase.Washing: return $"Washing... {Seconds(washTime - washTimer)}";
                 case Phase.Done: return "Take out the laundry";
+                case Phase.PutAway: return null;
                 default: return PlayerHolds(ItemType.DirtyClothes) ? "Load clothes and start" : "Washer - needs dirty clothes";
             }
         }
@@ -102,10 +108,30 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
                 break;
 
             case Phase.Done:
+                if (cleanClothes && wardrobe)
+                {
+                    // You get an armful of clean clothes: they go in the wardrobe in your room.
+                    phase = Phase.PutAway;
+                    StopDeadline();
+                    SetRunning(false);
+                    cleanClothes.ReturnHome(true);
+                    if (PlayerCarry.Instance) PlayerCarry.Instance.PickUp(cleanClothes);
+                    GameHUD.Toast("Clean clothes! Put them in your wardrobe.", GameHUD.Info);
+                    break;
+                }
                 Complete("Laundry done!");
                 break;
         }
     }
+
+    /// <summary>The wardrobe says the clean clothes are in.</summary>
+    public void ClothesPutAway()
+    {
+        if (!IsActive || phase != Phase.PutAway) return;
+        Complete("Laundry done - clothes put away!");
+    }
+
+    public override Vector3 Where => phase == Phase.PutAway && wardrobe ? wardrobe.transform.position : transform.position;
 
     protected override void OnActivated()
     {
@@ -154,6 +180,7 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
     {
         ResetMachine();
         if (dirtyClothes) dirtyClothes.ReturnHome(false); // also takes them out of the player's hands
+        if (cleanClothes) cleanClothes.ReturnHome(false);
     }
 
     void ResetMachine()

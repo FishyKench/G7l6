@@ -48,6 +48,23 @@ public class GameHUD : MonoBehaviour
         noteTemplate.gameObject.SetActive(false);
     }
 
+    CanvasGroup screenGroup;
+
+    /// <summary>With the VR headset on you can't see the house - the to-do list and messages fade away
+    /// (you have to remember what's waiting for you).</summary>
+    void LateUpdate()
+    {
+        if (!screenGroup)
+        {
+            var canvas = GetComponentInChildren<Canvas>(true);
+            if (!canvas) return;
+            screenGroup = canvas.GetComponent<CanvasGroup>();
+            if (!screenGroup) screenGroup = canvas.gameObject.AddComponent<CanvasGroup>();
+            screenGroup.blocksRaycasts = false;
+        }
+        screenGroup.alpha = Mathf.MoveTowards(screenGroup.alpha, VRHeadset.Worn ? 0f : 1f, Time.unscaledDeltaTime * 4f);
+    }
+
     public static void Toast(string message, Color color)
     {
         if (Instance && Instance.toast) Instance.toast.Show(message, color);

@@ -96,6 +96,7 @@ public class PauseMenu : MonoBehaviour
         if (Input.GetKeyDown(key) || Input.GetKeyDown(altKey))
         {
             if (paused) Resume();
+            else if (VRHeadset.Worn) { if (Input.GetKeyDown(altKey)) Pause(); } // in VR, Esc takes the headset off; P pauses
             else if (!busy && !busyLastFrame) Pause(); // Esc at the desk stands you up instead
         }
 

@@ -32,6 +32,8 @@ public class GameManager : MonoBehaviour
         if (!FindObjectOfType<GameHUD>()) new GameObject("HUD").AddComponent<GameHUD>();
         if (!FindObjectOfType<ExhaustionManager>()) gameObject.AddComponent<ExhaustionManager>();
         if (!FindObjectOfType<DayManager>()) gameObject.AddComponent<DayManager>(); // the clock, Mom coming home, the report card
+        // Each room has several lights: let every object use enough of them, or neighbouring walls light differently.
+        if (QualitySettings.pixelLightCount < 12) QualitySettings.pixelLightCount = 12;
         if (!FindObjectOfType<ItemFinder>()) gameObject.AddComponent<ItemFinder>(); // hold Tab to see where things are
         if (!FindObjectOfType<PauseMenu>()) gameObject.AddComponent<PauseMenu>();   // Esc / P
     }

@@ -192,7 +192,7 @@ public class MiniMap : MonoBehaviour
     {
         if (!layout || !player) return;
         if (!PauseMenu.IsPaused && Input.GetKeyDown(toggleKey)) targetAlpha = targetAlpha > 0.5f ? 0f : 1f;
-        group.alpha = Mathf.MoveTowards(group.alpha, targetAlpha, Time.unscaledDeltaTime * 5f);
+        group.alpha = Mathf.MoveTowards(group.alpha, VRHeadset.Worn ? 0f : targetAlpha, Time.unscaledDeltaTime * 5f); // no house map in VR
 
         int floor = layout.FloorAt(player.position.y - 1f);
         var room = layout.RoomAt(player.position, floor);
@@ -322,12 +322,12 @@ public class MiniMap : MonoBehaviour
             entries.Add(new Entry
             {
                 number = number,
-                world = task.transform.position,
+                world = task.Where,
                 color = task.isMainTask ? HomeworkColor : hazard ? HazardColor : TaskColor,
                 name = task.taskName,
                 pulse = hazard,
             });
-            int f = layout.FloorAt(task.transform.position.y - 0.2f);
+            int f = layout.FloorAt(task.Where.y - 0.2f);
             if (f < perFloor.Length) perFloor[f]++;
 
             var need = Needs(task);

@@ -45,6 +45,9 @@ public abstract class TaskBase : MonoBehaviour
 
     protected StressManager Stress => StressManager.Instance;
 
+    /// <summary>Where the task is right now (the map pin and Mom go here). Usually the object it's on.</summary>
+    public virtual Vector3 Where => transform.position;
+
     /// <summary>Any task finishing: (task, true = completed / false = failed). The day's report card counts these.</summary>
     public static event System.Action<TaskBase, bool> Ended;
 

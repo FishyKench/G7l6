@@ -84,8 +84,32 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 
     public bool ShouldBlockInput() => open; // E is typed, not used to stand up
 
+    /// <summary>Drawn inside a window on the gaming PC's desktop (instead of its own full-screen sheet).</summary>
+    public bool Hosted => hostParent;
+    RectTransform hostParent;
+
+    /// <summary>Show the homework inside a window (the PC's desktop). Typing only happens while it's started.</summary>
+    public void ShowIn(RectTransform parent)
+    {
+        if (ui && hostParent != parent) { Destroy(ui); ui = null; }
+        hostParent = parent;
+        EnsureUI();
+        ui.SetActive(true);
+        Refresh();
+    }
+
     public void StartMainTask()
     {
+        if (Hosted)
+        {
+            // In a window: start typing (if the cat's on the keys, the page says so and waits).
+            open = IsActive;
+            openedFrame = Time.frameCount;
+            EnsureUI();
+            ui.SetActive(true);
+            Refresh();
+            return;
+        }
         if (!IsActive || CatBrain.OnKeyboard)
         {
             if (CatBrain.OnKeyboard) GameHUD.Toast($"{CatBrain.Name} is lying on your keyboard - shoo her first!", GameHUD.Warn);
@@ -102,7 +126,8 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
     public void StopMainTask()
     {
         open = false;
-        if (ui) ui.SetActive(false);
+        if (ui && !Hosted) ui.SetActive(false);
+        else Refresh();
     }
 
     // ---------- typing ----------
@@ -157,8 +182,9 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
         if (pagesDone >= pagesRequired)
         {
             StopMainTask();
-            if (PlayerInteraction.Instance) PlayerInteraction.Instance.ReleaseMainTask(this);
+            if (!Hosted && PlayerInteraction.Instance) PlayerInteraction.Instance.ReleaseMainTask(this);
             Complete("Homework finished!");
+            Refresh();
             return;
         }
         NewPage();
@@ -171,6 +197,14 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
     void Refresh()
     {
         if (!ui) return;
+        if (!IsActive && LastSucceeded)
+        {
+            titleText.text = "<b>Homework</b>   <size=70%>all done!</size>";
+            bodyText.text = "<color=#2E9E44>Every page is typed. Mom will be proud (for once).</color>";
+            footerText.text = Hosted ? "Close the window or get up (ESC)." : "";
+            return;
+        }
+        if (string.IsNullOrEmpty(page)) return;
 
         titleText.text = $"<b>Homework</b>   <size=70%>Page {pagesDone + 1} of {pagesRequired}</size>";
 
@@ -200,19 +234,27 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
         else
             footerText.text = hasError
                 ? $"<color={ErrorColor}><b>Wrong key!</b> Press Backspace to fix it.</color>      Mistakes: {typos}"
-                : $"Mistakes: {typos}      <b>Backspace</b> fix      <b>Esc</b> stand up";
+                : !open && Hosted ? "<b>Click the page</b> to keep typing" : $"Mistakes: {typos}      <b>Backspace</b> fix      <b>Esc</b> {(Hosted ? "get up" : "stand up")}";
     }
 
     void EnsureUI()
     {
         if (ui) return;
 
-        var canvas = UIFactory.CreateCanvas("Homework Canvas", 60);
-        ui = canvas.gameObject;
-        ui.transform.SetParent(transform, false);
-
-        var dim = UIFactory.Panel("Dim", ui.transform, new Color(0f, 0f, 0f, 0.55f));
-        UIFactory.Fill(dim.rectTransform);
+        if (hostParent)
+        {
+            var holder = UIFactory.Rect("Homework", hostParent);
+            UIFactory.Fill(holder);
+            ui = holder.gameObject;
+        }
+        else
+        {
+            var canvas = UIFactory.CreateCanvas("Homework Canvas", 60);
+            ui = canvas.gameObject;
+            ui.transform.SetParent(transform, false);
+            var dim = UIFactory.Panel("Dim", ui.transform, new Color(0f, 0f, 0f, 0.55f));
+            UIFactory.Fill(dim.rectTransform);
+        }
 
         var paper = UIFactory.Panel("Paper", ui.transform, new Color(0.97f, 0.95f, 0.89f, 1f));
         UIFactory.Place(paper.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1100f, 520f));

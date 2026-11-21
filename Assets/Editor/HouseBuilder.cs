@@ -1168,7 +1168,7 @@ public static class HouseBuilder
         foreach (var l in room.furniture.GetComponentsInChildren<Light>(true))
             if (!oldLights.Contains(l)) l.range *= houseScale.x;
 
-        string homework = HouseTaskSetup.SetUpHomeworkDesk(desk);
+        string homework = HouseTaskSetup.SetUpMatchAndHomework(desk, OfficeDesk(furnitureRoot));
         HouseTaskSetup.PrepareCatForHouse();
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
@@ -1179,6 +1179,47 @@ public static class HouseBuilder
         message += "\n\nThe old furniture is hidden under 'Old furniture (backup)' in the room. The scene is saved.";
         Debug.Log("[Your room] " + message);
         Selection.activeObject = room.furniture.gameObject;
+    }
+
+    /// <summary>
+    /// Menu: G7l6 > Set Up Ranked Match. Your gaming PC desk becomes the ranked match (the day's main objective)
+    /// and homework moves to the desk in Mom's office. Only those two desks change; the scene is saved.
+    /// </summary>
+    [MenuItem("G7l6/Set Up Ranked Match")]
+    public static void SetUpRankedMatch()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[Ranked match] Stop Play mode first."); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != TargetScene)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(TargetScene, OpenSceneMode.Single);
+        }
+        var house = scene.GetRootGameObjects().FirstOrDefault(g => g.name == "NewHouse");
+        var furniture = house ? house.transform.Find("Furniture") : null;
+        if (!furniture) { Debug.LogWarning("[Ranked match] No NewHouse/Furniture in the scene."); return; }
+
+        // The gaming desk: whatever has the match or homework in your room, else the first desk there.
+        var room = furniture.Find($"First - {PlayerRoomName}");
+        GameObject gaming = null;
+        if (room)
+        {
+            var existing = room.GetComponentsInChildren<MatchTask>().FirstOrDefault()?.gameObject
+                           ?? room.GetComponentsInChildren<TypingTask>().FirstOrDefault()?.gameObject;
+            gaming = existing ?? room.Cast<Transform>().FirstOrDefault(t => t.gameObject.activeInHierarchy && t.name.Contains("Desk"))?.gameObject;
+        }
+        string report = HouseTaskSetup.SetUpMatchAndHomework(gaming, OfficeDesk(furniture));
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        Debug.Log("[Ranked match] " + report + System.Environment.NewLine + "The scene is saved.");
+    }
+
+    /// <summary>The desk in Mom's office (homework goes there).</summary>
+    static GameObject OfficeDesk(Transform furniture)
+    {
+        var office = furniture ? furniture.Find("First - Office") : null;
+        if (!office) return null;
+        return office.Cast<Transform>().FirstOrDefault(t => t.gameObject.activeInHierarchy && t.name.Contains("Desk"))?.gameObject;
     }
 
     /// <summary>Old furniture goes into a hidden backup (first run) or away (later runs). Curtains and blinds stay.</summary>
@@ -1487,6 +1528,262 @@ public static class HouseBuilder
         // A collider that comes with the prefab can't be deleted from the scene copy - switch it off instead.
         if (PrefabUtility.IsPartOfPrefabInstance(c) && !PrefabUtility.IsAddedComponentOverride(c)) c.enabled = false;
         else Object.DestroyImmediate(c);
+    }
+
+    // ------------------------------------------------------------------ finishing touches on the saved house
+
+    /// <summary>
+    /// Menu: G7l6 > Finish Walls, Floors and Laundry. On the saved NewHouse scene (nothing is rebuilt):
+    ///   - wooden floors get the plank texture (Assets/Materials/House/Wood Planks.png);
+    ///   - filler columns wherever walls meet or end, so there are no gaps;
+    ///   - skirting boards along the bottom of every room's walls;
+    ///   - a wardrobe on a free wall in your room (doors open with E), the dirty clothes pile in your room, and
+    ///     clean clothes on the washer that you put away in the wardrobe.
+    /// Safe to run again. The scene is saved.
+    /// </summary>
+    [MenuItem("G7l6/Finish Walls, Floors and Laundry")]
+    public static void FinishHouse()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[Finish house] Stop Play mode first."); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != TargetScene)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(TargetScene, OpenSceneMode.Single);
+        }
+        var house = scene.GetRootGameObjects().FirstOrDefault(g => g.name == "NewHouse");
+        if (!house) { Debug.LogWarning("[Finish house] No 'NewHouse' in the scene."); return; }
+
+        missing.Clear(); prefabCache.Clear(); prefabIndex = null; placed = 0; skipped = 0;
+        clearZones.Clear(); footprints.Clear(); windowZones.Clear(); roomOfGroup.Clear(); wallArt.Clear();
+        wallMats.Clear(); floorMats.Clear(); doors.Clear(); mapWalls.Clear();
+        taskObjects = new HouseTaskSetup.HouseTaskObjects();
+        Materials();
+        DefinePlan();
+        root = house.transform;
+        structure = root.Find("Structure");
+        furnitureRoot = root.Find("Furniture");
+        foreach (var r in rooms) r.furniture = furnitureRoot ? furnitureRoot.Find($"{FloorName(r.floor)} - {r.name}") : null;
+        var layout = house.GetComponent<HouseLayout>();
+
+        var report = new List<string>();
+        Vector3 houseScale = root.localScale;
+        root.localScale = Vector3.one; // work in plan metres, like the builder
+        Physics.SyncTransforms();
+        try
+        {
+            report.Add(PlankFloors());
+            if (layout)
+            {
+                report.Add(WallJoints(layout));
+                report.Add(Skirting(layout));
+                report.Add(LaundryAndWardrobe(layout));
+            }
+        }
+        finally
+        {
+            root.localScale = houseScale;
+            Physics.SyncTransforms();
+        }
+        // Enough lights per object that neighbouring walls are lit the same (the game does this too).
+        if (QualitySettings.pixelLightCount < 12) QualitySettings.pixelLightCount = 12;
+
+        HouseTaskSetup.PrepareCatForHouse();
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        AssetDatabase.SaveAssets();
+        Debug.Log("[Finish house]\n- " + string.Join("\n- ", report) + "\nThe scene is saved.");
+    }
+
+    static string PlankFloors()
+    {
+        string path = $"{MaterialFolder}/Wood Planks.png";
+        var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (importer)
+        {
+            importer.wrapMode = TextureWrapMode.Repeat;
+            importer.anisoLevel = 8;
+            importer.mipmapEnabled = true;
+            importer.SaveAndReimport();
+        }
+        var planks = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        if (!planks) return "No plank texture found at " + path;
+        (string name, Color tint)[] floors =
+        {
+            ("Floor - Oak", new Color(1f, 0.97f, 0.92f)),
+            ("Floor - Walnut", new Color(0.6f, 0.47f, 0.4f)),
+            ("Floor - Honey Wood", new Color(1f, 0.88f, 0.7f)),
+            ("Floor - Deck", new Color(0.8f, 0.66f, 0.55f)),
+        };
+        int n = 0;
+        foreach (var (name, tint) in floors)
+        {
+            var m = AssetDatabase.LoadAssetAtPath<Material>($"{MaterialFolder}/{name}.mat");
+            if (!m) continue;
+            m.mainTexture = planks;
+            m.mainTextureScale = Vector2.one;
+            m.mainTextureOffset = Vector2.zero;
+            foreach (var prop in new[] { "_BumpMap", "_OcclusionMap", "_DetailAlbedoMap", "_DetailNormalMap", "_ParallaxMap", "_MetallicGlossMap" })
+                if (m.HasProperty(prop)) m.SetTexture(prop, null);
+            m.DisableKeyword("_NORMALMAP");
+            m.DisableKeyword("_DETAIL_MULX2");
+            m.color = tint;
+            m.SetFloat("_Glossiness", 0.28f);
+            EditorUtility.SetDirty(m);
+            n++;
+        }
+        return $"Plank texture on {n} wooden floor materials";
+    }
+
+    /// <summary>A column wherever walls meet at an angle or a wall just ends (no gaps, no raw wall ends).</summary>
+    static string WallJoints(HouseLayout layout)
+    {
+        var existing = structure.GetComponentsInChildren<Transform>(true).Where(t => t.name.StartsWith("Wall Column")).Select(t => t.position).ToList();
+        int added = 0;
+        for (int f = 0; f < 3; f++)
+        {
+            var ends = new Dictionary<(int, int), List<Vector2>>();
+            foreach (var w in layout.walls)
+            {
+                if (w.floor != f || w.type == HouseLayout.WallType.Railing) continue;
+                var a = (Mathf.RoundToInt(w.a.x), Mathf.RoundToInt(w.a.y));
+                var b = (Mathf.RoundToInt(w.b.x), Mathf.RoundToInt(w.b.y));
+                if (!ends.TryGetValue(a, out var la)) ends[a] = la = new List<Vector2>();
+                if (!ends.TryGetValue(b, out var lb)) ends[b] = lb = new List<Vector2>();
+                la.Add((w.b - w.a).normalized);
+                lb.Add((w.a - w.b).normalized);
+            }
+            var parent = Group(structure, $"{FloorName(f)} floor/Walls");
+            foreach (var pair in ends)
+            {
+                var dirs = pair.Value;
+                bool straightThrough = dirs.Count == 2 && Vector2.Dot(dirs[0], dirs[1]) < -0.9f;
+                if (straightThrough) continue;
+                var p = new Vector3(pair.Key.Item1, f * Storey - WallSink, pair.Key.Item2);
+                if (existing.Any(e => new Vector2(e.x - p.x, e.z - p.z).magnitude < 0.2f && Mathf.Abs(e.y - p.y) < 1f)) continue;
+                var col = Piece("Wall Column", parent, p, 0f);
+                if (!col) break;
+                col.name = "Wall Column (joint)";
+                col.transform.localScale = new Vector3(1.01f, (Storey - 0.03f) / 3.0363f, 1.01f);
+                SetLayer(col, WallLayer);
+                existing.Add(p);
+                added++;
+            }
+        }
+        return $"{added} filler columns where walls meet or end";
+    }
+
+    /// <summary>Skirting boards along the bottom of every room's walls (both sides of inside walls).</summary>
+    static string Skirting(HouseLayout layout)
+    {
+        foreach (var old in structure.GetComponentsInChildren<Transform>(true).Where(t => t.name == "Skirting boards").ToList())
+            Object.DestroyImmediate(old.gameObject);
+        var paint = Mat("Skirting", new Color(0.94f, 0.92f, 0.88f), 0.35f);
+        int mask = 1 << WallLayer, pieces = 0;
+        for (int f = 0; f < 3; f++)
+        {
+            var parent = Group(structure, $"{FloorName(f)} floor/Skirting boards");
+            float floorY = f * Storey;
+            foreach (var w in layout.walls)
+            {
+                if (w.floor != f || w.type == HouseLayout.WallType.Railing) continue;
+                bool alongX = Mathf.Approximately(w.a.y, w.b.y);
+                Vector3 along = alongX ? Vector3.right : Vector3.forward;
+                Vector3 start = new Vector3(Mathf.Min(w.a.x, w.b.x), floorY, Mathf.Min(w.a.y, w.b.y));
+                float length = Vector2.Distance(w.a, w.b);
+                var spans = w.type == HouseLayout.WallType.Door
+                    ? new[] { (0f, length * 0.24f), (length * 0.76f, length) } // not across the doorway
+                    : new[] { (0f, length) };
+                foreach (int side in new[] { 1, -1 })
+                {
+                    Vector3 normal = alongX ? new Vector3(0f, 0f, side) : new Vector3(side, 0f, 0f);
+                    Vector3 probe = start + along * (length * 0.5f) + normal * 1f;
+                    var room = RoomAt(f, Mathf.FloorToInt(probe.x), Mathf.FloorToInt(probe.z));
+                    if (room == null || !room.Indoor || room.kind == Kind.Stairs) continue;
+                    foreach (var (s0, s1) in spans)
+                    {
+                        float mid = (s0 + s1) * 0.5f, len = s1 - s0;
+                        // Find the wall's actual face from the room side.
+                        Vector3 origin = start + along * mid + normal * 0.7f + Vector3.up * 0.08f;
+                        if (!Physics.Raycast(origin, -normal, out var hit, 1.2f, mask, QueryTriggerInteraction.Ignore)) continue;
+                        Vector3 centre = start + along * mid + Vector3.up * 0.058f;
+                        if (alongX) centre.z = hit.point.z + side * 0.012f; else centre.x = hit.point.x + side * 0.012f;
+                        Vector3 size = alongX ? new Vector3(len, 0.1f, 0.024f) : new Vector3(0.024f, 0.1f, len);
+                        var board = Box("Skirting", parent, centre, size, paint, false);
+                        board.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                        pieces++;
+                    }
+                }
+            }
+        }
+        return $"{pieces} skirting boards";
+    }
+
+    /// <summary>Wardrobe in your room, the dirty clothes pile in your room, and clean clothes on the washer.</summary>
+    static string LaundryAndWardrobe(HouseLayout layout)
+    {
+        var room = Find(1, PlayerRoomName);
+        if (!room.furniture) return "No 'First - Your bedroom' furniture group - wardrobe skipped";
+        var laundry = Object.FindObjectOfType<LaundryTask>(true);
+        var notes = new List<string>();
+
+        // What's already in the room (so the new things go in free spots).
+        footprints.Clear(); clearZones.Clear(); windowZones.Clear();
+        foreach (Transform piece in room.furniture)
+        {
+            if (!piece.gameObject.activeInHierarchy || piece.GetComponentInChildren<Carryable>(true)) continue;
+            var b = Bounds(piece.gameObject);
+            if (b.size.y < 0.06f || b.min.y > room.Base + 1.0f) continue; // rugs and wall art don't block
+            footprints.Add((room.floor, new Rect(b.min.x, b.min.z, b.size.x, b.size.z), piece.gameObject));
+        }
+        ClearancesFromLayout(room, layout);
+
+        // The wardrobe.
+        var wardrobe = room.furniture.GetComponentsInChildren<Wardrobe>(true).FirstOrDefault();
+        GameObject wardrobeGo = wardrobe ? wardrobe.gameObject : Wall(1, PlayerRoomName, "Wardrobe|closet_001", Side.W, 0.5f, quiet: true);
+        if (wardrobeGo)
+        {
+            wardrobe = wardrobeGo.GetComponent<Wardrobe>();
+            if (!wardrobe) wardrobe = wardrobeGo.AddComponent<Wardrobe>();
+            if (!wardrobeGo.GetComponent<Outline>())
+            {
+                var outline = wardrobeGo.AddComponent<global::Outline>();
+                outline.OutlineMode = global::Outline.Mode.OutlineVisible;
+                outline.OutlineColor = Color.white;
+                outline.OutlineWidth = 5f;
+                outline.enabled = false;
+            }
+            notes.Add("wardrobe in your room");
+        }
+        else notes.Add("no free wall for a wardrobe in your room (move something and run again)");
+
+        if (!laundry) return "Wardrobe: " + string.Join(", ", notes) + " - no laundry task found";
+
+        // Dirty clothes: a pile on the floor of your room.
+        var oldPile = laundry.dirtyClothes;
+        var pile = Center(1, PlayerRoomName, "clothes_001|clothes_002", 0.55f, 0.62f, 30f);
+        if (pile)
+        {
+            if (oldPile && oldPile.gameObject != pile) Object.DestroyImmediate(oldPile.gameObject);
+            pile.name = "Dirty clothes";
+            laundry.dirtyClothes = HouseTaskSetup.MakeCarryableFor(pile, ItemType.DirtyClothes, "dirty clothes", 0.5f);
+            laundry.clothesLocation = "in your room";
+            notes.Add("dirty clothes pile in your room");
+        }
+
+        // Clean clothes: on top of the washer, hidden until the wash is done.
+        if (laundry.cleanClothes) Object.DestroyImmediate(laundry.cleanClothes.gameObject);
+        var clean = On(laundry.gameObject, "clothes_002|clothes_001", 0.5f, 0.5f);
+        if (clean)
+        {
+            clean.name = "Clean clothes";
+            FitBox(clean);
+            laundry.cleanClothes = HouseTaskSetup.MakeCarryableFor(clean, ItemType.CleanClothes, "clean clothes", 0.5f);
+            notes.Add("clean clothes on the washer");
+        }
+        laundry.wardrobe = wardrobe;
+        EditorUtility.SetDirty(laundry);
+        return "Laundry: " + string.Join(", ", notes);
     }
 
     // ---- placement with clearance checks

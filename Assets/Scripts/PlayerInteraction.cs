@@ -84,7 +84,10 @@ public class PlayerInteraction : MonoBehaviour
             var col = hits[i].collider;
             if (col.transform.IsChildOf(transform)) continue; // ourselves
 
-            mainTask = col.GetComponentInParent<IMainTask>();
+            // Things that host other tasks (the gaming PC, the VR headset) come first.
+            var host = col.GetComponentInParent<IMainTaskHost>();
+            mainTask = host as IMainTask;
+            if (mainTask == null || (host is Object o && !o)) mainTask = col.GetComponentInParent<IMainTask>();
             interactable = mainTask == null ? col.GetComponentInParent<IInteractable>() : null;
             if (mainTask != null || interactable != null) { hitCollider = col; return; }
 
@@ -120,12 +123,17 @@ public class PlayerInteraction : MonoBehaviour
     /// <summary>For main tasks that close themselves (e.g. homework finished).</summary>
     public void ReleaseMainTask(IMainTask task)
     {
-        if (currentMainTask != task) return;
+        // A task running inside a host (homework on the PC, the match in the headset) closing itself releases the host.
+        if (currentMainTask is IMainTaskHost host && !ReferenceEquals(host, task) && host.Hosts(task)) host.Released(task);
+        else if (currentMainTask != task) return;
         currentMainTask = null;
         SetPlayerControl(true);
     }
 
     public void EnablePlayerControl() => SetPlayerControl(true);
+
+    /// <summary>For on-screen buttons like "Get up from the PC".</summary>
+    public void StopCurrentTaskFromUI() => StopCurrentMainTask();
 
     void SetPlayerControl(bool enabled)
     {

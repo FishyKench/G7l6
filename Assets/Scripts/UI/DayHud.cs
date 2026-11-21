@@ -20,12 +20,14 @@ public class DayHud : MonoBehaviour
     DayManager day;
     TMP_FontAsset font;
     RectTransform canvasRoot, clock, phone;
-    TextMeshProUGUI timeText, untilText, phoneFrom, phoneMessage;
+    TextMeshProUGUI timeText, untilText, phoneFrom, phoneMessage, phoneInitial;
+    Image phoneAvatar;
     RectTransform barFill;
     Image barImage;
     readonly Queue<(string from, string message)> inbox = new Queue<(string, string)>();
     bool phoneBusy;
     static Sprite round;
+    CanvasGroup screenGroup;
 
     void Start()
     {
@@ -34,6 +36,8 @@ public class DayHud : MonoBehaviour
         var canvas = UIFactory.CreateCanvas("Day Canvas", 55);
         canvas.transform.SetParent(transform, false);
         canvasRoot = (RectTransform)canvas.transform;
+        screenGroup = canvas.gameObject.AddComponent<CanvasGroup>();
+        screenGroup.blocksRaycasts = false;
         BuildClock();
         BuildPhone();
     }
@@ -79,6 +83,8 @@ public class DayHud : MonoBehaviour
 
     void Update()
     {
+        // No clock or phone in VR - you lose track of time (texts wait on your phone until you take it off).
+        if (screenGroup) screenGroup.alpha = Mathf.MoveTowards(screenGroup.alpha, VRHeadset.Worn && day && day.State != DayManager.Phase.Report ? 0f : 1f, Time.unscaledDeltaTime * 4f);
         if (!day || !clock) return;
         float hour = day.Hour;
         int h = Mathf.FloorToInt(hour), m = Mathf.FloorToInt((hour - h) * 60f);
@@ -133,10 +139,12 @@ public class DayHud : MonoBehaviour
         UIFactory.Fill(body.rectTransform);
 
         var dot = UIFactory.Panel("Avatar", phone, new Color32(255, 140, 120, 255));
+        phoneAvatar = dot;
         dot.sprite = Round();
         UIFactory.Place(dot.rectTransform, new Vector2(0f, 1f), new Vector2(0.5f, 0.5f), new Vector2(30, -28), new Vector2(34, 34));
         var initial = UIFactory.Text("M", dot.transform, 18, Color.white, TextAlignmentOptions.Center);
         initial.text = "M";
+        phoneInitial = initial;
         initial.fontStyle = FontStyles.Bold;
         UIFactory.Fill(initial.rectTransform);
 
@@ -155,6 +163,7 @@ public class DayHud : MonoBehaviour
     /// <summary>Shows a text message notification (queued if one is showing).</summary>
     public void Text(string from, string message)
     {
+        if (MatchTask.InVR && VRArena.Instance && VRArena.Instance.Hud) VRArena.Instance.Hud.Buzz(); // you feel it, you can't read it
         inbox.Enqueue((from, message));
         if (!phoneBusy) StartCoroutine(ShowTexts());
     }
@@ -164,8 +173,11 @@ public class DayHud : MonoBehaviour
         phoneBusy = true;
         while (inbox.Count > 0)
         {
+            while (VRHeadset.Worn) yield return null; // read it when you take the headset off
             var (from, message) = inbox.Dequeue();
             phoneFrom.text = from;
+            phoneInitial.text = string.IsNullOrEmpty(from) ? "?" : from.Substring(0, 1);
+            phoneAvatar.color = from == "MOM" ? new Color32(255, 140, 120, 255) : new Color32(90, 160, 255, 255);
             phoneMessage.text = message;
             phone.gameObject.SetActive(true);
             yield return Slide(phone, new Vector2(400, 150), new Vector2(-30, 150), 0.3f);
@@ -231,6 +243,15 @@ public class DayHud : MonoBehaviour
         Line(card, $"{r.score} / 100", 18, Red, new Vector2(-110, -184), new Vector2(150, 24), TextAlignmentOptions.Center, anchorRight: true);
         circle.gameObject.SetActive(false);
 
+        // The match result, stamped next to Mom's grade (it doesn't count towards it).
+        if (r.match != null)
+        {
+            var stamp = Line(card, r.matchWon ? "VICTORY" : r.match.StartsWith("LOST") ? "DEFEAT" : "NO GG", 30,
+                r.matchWon ? new Color32(40, 140, 220, 255) : Red, new Vector2(-300, -150), new Vector2(200, 40), TextAlignmentOptions.Center, anchorRight: true);
+            stamp.fontStyle = FontStyles.Bold;
+            stamp.rectTransform.localRotation = Quaternion.Euler(0, 0, 8f);
+        }
+
         // The breakdown
         float y = -220f;
         void Row(string label, string value, int points, bool sub = false)
@@ -244,6 +265,11 @@ public class DayHud : MonoBehaviour
             y -= sub ? 25f : 31f;
         }
 
+        if (r.match != null)
+        {
+            Row("Ranked match", $"{r.match}  ({(r.rankPoints >= 0 ? "+" : "")}{r.rankPoints} RP)", 0);
+            y -= 6f;
+        }
         Row("Homework", r.homework, -r.homeworkPoints);
         Row("Chores done", r.done.ToString(), r.choreBonus);
         Row("Chores failed", r.failed.ToString(), -r.failPenalty);
