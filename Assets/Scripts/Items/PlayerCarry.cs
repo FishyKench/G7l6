@@ -26,6 +26,7 @@ public class PlayerCarry : MonoBehaviour
             holdPoint.SetParent(Camera.main.transform, false);
             holdPoint.localPosition = holdOffset;
         }
+        if (holdPoint && !holdPoint.GetComponent<HeldItemMotion>()) holdPoint.gameObject.AddComponent<HeldItemMotion>(); // also keeps held things out of walls
     }
 
     void Update()
@@ -40,6 +41,7 @@ public class PlayerCarry : MonoBehaviour
     {
         if (!item || item == Held || !holdPoint || item.TakenBy) return;
         if (Held) Drop(); // swap: put the current one down first
+        HeldItemMotion.ResetClearance();
         Held = item;
         item.AttachTo(holdPoint);
     }
@@ -47,6 +49,7 @@ public class PlayerCarry : MonoBehaviour
     public void Drop()
     {
         if (!Held) return;
+        HeldItemMotion.ResetClearance();
         var item = Held;
         Held = null;
 
@@ -65,6 +68,7 @@ public class PlayerCarry : MonoBehaviour
     /// <summary>Removes the held item from the player's hands without placing it (the caller decides what happens to it).</summary>
     public Carryable TakeHeld()
     {
+        HeldItemMotion.ResetClearance();
         var item = Held;
         Held = null;
         return item;

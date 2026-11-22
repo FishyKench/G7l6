@@ -494,6 +494,7 @@ public class MiniMap : MonoBehaviour
         int used = 0;
         foreach (var e in entries)
         {
+            if (!HudFocus.Full) break; // the list repeats the to-do notes: only while Tab is held
             if (used >= rowPool.Count) rowPool.Add(NewRow());
             var row = rowPool[used++];
             if (!row.root.gameObject.activeSelf) row.root.gameObject.SetActive(true);

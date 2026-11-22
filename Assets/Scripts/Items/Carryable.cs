@@ -9,6 +9,7 @@ public enum ItemType
     Bucket,
     CleanClothes,
     TrashBag,
+    Food,          // cooking: ingredients, salt / oil, the pot / pan / bowl
 }
 
 /// <summary>
@@ -35,6 +36,8 @@ public class Carryable : MonoBehaviour, IInteractable, IPromptProvider
     bool initialized;
 
     public bool IsHeld { get; private set; }
+    /// <summary>False for things that don't belong anywhere (the cooking things): no "put it back", Mom doesn't mind where they are.</summary>
+    [System.NonSerialized] public bool hasHome = true;
     /// <summary>Something other than the player has it right now (e.g. the cat, in its mouth).</summary>
     public Object TakenBy { get; private set; }
     /// <summary>If set, the player can't pick it up and sees this message instead (e.g. "Kitty is napping on them").</summary>
@@ -63,14 +66,14 @@ public class Carryable : MonoBehaviour, IInteractable, IPromptProvider
     {
         get
         {
-            if (!initialized) return true;
+            if (!initialized || !hasHome) return true;
             if (IsHeld || TakenBy) return false;
             return Vector3.Distance(transform.position, homePosition) < HomeRadius;
         }
     }
 
     /// <summary>Close enough to where it belongs that dropping it puts it back properly.</summary>
-    public bool NearHome(Vector3 point) => initialized && Vector3.Distance(Flat(point), Flat(homePosition)) < HomeRadius * 1.8f
+    public bool NearHome(Vector3 point) => initialized && hasHome && Vector3.Distance(Flat(point), Flat(homePosition)) < HomeRadius * 1.8f
                                            && Mathf.Abs(point.y - homePosition.y) < 1.6f;
 
     float HomeRadius => 0.9f * (HouseLayout.Instance ? HouseLayout.Instance.scale : 1f);

@@ -19,7 +19,8 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
     [Tooltip("Optional font for the homework sheet.")]
     public TMP_FontAsset font;
 
-    const string TypedColor = "#1E1E24";
+    const string TypedColor = "#2E8B3E";   // what you typed right: green
+    const string CursorColor = "#1E1E24";  // the next letter to type
     const string UpcomingColor = "#9B9BA5";
     const string CursorMark = "#FFC83D66";
     const string ErrorColor = "#E0201B";
@@ -222,7 +223,7 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
         }
         else
         {
-            sb.Append("<mark=").Append(CursorMark).Append("><color=").Append(TypedColor).Append('>')
+            sb.Append("<mark=").Append(CursorMark).Append("><color=").Append(CursorColor).Append('>')
               .Append(page[position]).Append("</color></mark>");
             if (position + 1 < page.Length)
                 sb.Append("<color=").Append(UpcomingColor).Append('>').Append(page, position + 1, page.Length - position - 1).Append("</color>");
@@ -267,6 +268,7 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 
         bodyText = UIFactory.Text("Body", paper.transform, 34, new Color(0.15f, 0.15f, 0.2f), TextAlignmentOptions.TopLeft, font);
         bodyText.lineSpacing = 18f;
+        bodyText.gameObject.AddComponent<PcSketchKeep>(); // the PC's ink restyle would turn the grey (to type) and green (typed) all one ink
         UIFactory.Fill(bodyText.rectTransform, 100, 60, 120, 90);
 
         footerText = UIFactory.Text("Footer", paper.transform, 22, new Color(0.3f, 0.3f, 0.36f), TextAlignmentOptions.BottomLeft, font);

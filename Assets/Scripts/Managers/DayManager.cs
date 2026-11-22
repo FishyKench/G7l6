@@ -286,7 +286,7 @@ public class DayManager : MonoBehaviour
         var carry = PlayerCarry.Instance;
         foreach (var item in FindObjectsOfType<Carryable>())
         {
-            if (!item || item.type == ItemType.DirtyClothes || item.type == ItemType.CleanClothes || !item.gameObject.activeInHierarchy) continue;
+            if (!item || item.type == ItemType.DirtyClothes || item.type == ItemType.CleanClothes || item.type == ItemType.Food || !item.gameObject.activeInHierarchy) continue;
             bool held = carry && carry.Held == item;
             if (!held && item.IsHome) continue;
             list.Add(new Finding
@@ -321,6 +321,7 @@ public class DayManager : MonoBehaviour
             case CeilingLeakTask _: f.what = "Water coming through the ceiling"; f.line = "Water from the CEILING?!"; f.points = 15; break;
             case TvTask _: f.what = $"{task.taskName} blaring static"; f.line = "Turn that TV OFF."; f.points = 8; break;
             case OvenTask oven: f.what = "Dinner not made"; f.line = oven.Progress >= 1f ? "Something's burning..." : "Where's dinner?"; f.points = 12; break;
+            case Cooking _: f.what = "Dinner not made"; f.line = "Where's dinner?"; f.points = 12; break;
             case LaundryTask _: f.what = "Laundry not done"; f.line = "The laundry's still not done?"; f.points = 10; break;
             default: f.what = task.taskName + " not done"; f.line = "What's this?"; f.points = 10; break;
         }

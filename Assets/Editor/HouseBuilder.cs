@@ -127,7 +127,7 @@ public static class HouseBuilder
         R(0, "Pantry", 6, 6, 10, 10, Kind.Service, false);
         R(0, "Hall", 10, 4, 12, 10, Kind.Hall, false);
         R(0, "Stairs", 12, 4, 16, 10, Kind.Stairs, false);
-        R(0, "Kitchen", 16, 6, 20, 10, Kind.Living, true);
+        R(0, "Kitchen", 16, 6, 24, 10, Kind.Living, true); // pushed out east (see BuildBiggerKitchen)
         R(0, "Playroom", 6, 10, 10, 16, Kind.Fun, true);
         R(0, "Living room", 10, 10, 16, 16, Kind.Living, true);
         R(0, "Dining", 16, 10, 20, 16, Kind.Living, true);
@@ -2422,13 +2422,13 @@ public static class HouseBuilder
             case "Garage": return Flat("Floor - Concrete", new Color(0.55f, 0.56f, 0.57f), 0.1f);
             case "Balcony": return Tinted("Wooden Floor Alt", "Floor - Deck", new Color(0.82f, 0.68f, 0.55f));
             case "Foyer": case "Mudroom": return Tinted("Tile Floor", "Floor - Terracotta Tile", new Color(1f, 0.78f, 0.64f));
-            case "Kitchen": return Tinted("Tile Floor", "Floor - White Tile", Color.white);
+            case "Kitchen": return KitchenFloor() ?? Tinted("Tile Floor", "Floor - White Tile", Color.white);
             case "Pantry": case "Laundry": return Tinted("Tile Floor", "Floor - Grey Tile", new Color(0.82f, 0.85f, 0.88f));
             case "Music room": return Tinted("Wooden Floor Alt", "Floor - Honey Wood", new Color(1f, 0.88f, 0.72f));
             case "Library": case "Office": return Tinted("Wooden Floor Alt", "Floor - Walnut", new Color(0.7f, 0.56f, 0.48f));
             case "Mom's bedroom": return Flat("Floor - Sand Carpet", new Color(0.83f, 0.76f, 0.64f), 0.05f);
             case "Walk-in closet": return Flat("Floor - Blush Carpet", new Color(0.86f, 0.72f, 0.7f), 0.05f);
-            case "Your bedroom": return Flat("Floor - Midnight Carpet", new Color(0.3f, 0.34f, 0.47f), 0.05f);
+            case "Your bedroom": return PlankFloor() ?? Flat("Floor - Midnight Carpet", new Color(0.3f, 0.34f, 0.47f), 0.05f);
             case "Kid's room": return Flat("Floor - Sky Carpet", new Color(0.62f, 0.76f, 0.9f), 0.05f);
             case "Playroom": return Flat("Floor - Soft Mat", new Color(0.62f, 0.8f, 0.66f), 0.05f);
             case "Home cinema": return Flat("Floor - Wine Carpet", new Color(0.42f, 0.14f, 0.18f), 0.05f);
@@ -2456,7 +2456,7 @@ public static class HouseBuilder
             "Playroom" => ("Mint", new Color(0.7f, 0.9f, 0.8f)),
             "Mom's bedroom" => ("Dusty Rose", new Color(0.86f, 0.73f, 0.73f)),
             "Mom's bath" => ("Aqua", new Color(0.72f, 0.88f, 0.89f)),
-            "Your bedroom" => ("Slate Blue", new Color(0.38f, 0.44f, 0.58f)),
+            "Your bedroom" => ("Midnight Navy", new Color(0.25f, 0.28f, 0.42f)),
             "Bathroom" => ("Aqua", new Color(0.72f, 0.88f, 0.89f)),
             "Kid's room" => ("Sunshine", new Color(0.99f, 0.86f, 0.56f)),
             "Office" => ("Olive", new Color(0.64f, 0.68f, 0.52f)),
@@ -3076,6 +3076,8 @@ public static class HouseBuilder
             (copy.GetComponent<RoomUnlock>() ?? copy.AddComponent<RoomUnlock>()).key = "gpu";
         }
 
+        // ---- the floor and walls (smoked oak, navy, walnut slats behind the desk)
+        RedoRoomSurfaces(room, g, report);
         // ---- the gaming corner (new half, north-east): the desk setup in tiers
         SetupTiers(room, g, report);
 
@@ -3097,8 +3099,8 @@ public static class HouseBuilder
 
         // ---- spots for the things built in code at runtime (RoomProgress): +z of each anchor points into the room
         Anchor(g, "Trophy table anchor", new Vector3(21.0f, floorY, WallFace + 0.01f), 0f, "always");
-        Anchor(g, "Neon sign anchor", new Vector3(NewEast - WallFace - 0.005f, floorY + 2.5f, 4.6f), -90f, "f500");
-        Anchor(g, "Acoustic panels anchor", new Vector3(22.95f, floorY + 1.85f, 6f - WallFace - 0.005f), 180f, "f1000");
+        Anchor(g, "Neon sign anchor", new Vector3(NewEast - WallFace - 0.04f, floorY + 2.4f, 4.8f), -90f, "f500"); // on the slats
+        Anchor(g, "Acoustic panels anchor", new Vector3(22.95f, floorY + 1.85f, 6f - WallFace - 0.04f), 180f, "f1000"); // on the walnut slats
         Anchor(g, "Hex lights anchor", new Vector3(16f + WallFace + 0.005f, floorY + 1.95f, 3.4f), 90f, "diamond");
         report.Add($"Placed {placed} progression pieces (each appears once earned).");
     }
@@ -3335,5 +3337,788 @@ public static class HouseBuilder
         a.SetParent(parent, true);
         a.SetPositionAndRotation(at, Quaternion.Euler(0f, yaw, 0f));
         a.gameObject.AddComponent<RoomUnlock>().key = key;
+    }
+
+    // ------------------------------------------------------------------ the gamer room's floor and walls
+
+    /// <summary>
+    /// Your room's surfaces, redone to match the rest of the house (wood floors, painted walls) with a gamer feel: smoked-oak planks
+    /// on the floor, deep navy walls, and a wall of walnut slats behind the desk. Repaints every first-floor wall face (only your
+    /// room's side changes colour) and re-tiles your room's floor. Safe to run again.
+    /// </summary>
+    static void RedoRoomSurfaces(Room room, Transform g, List<string> report)
+    {
+        int tiles = 0, walls = 0;
+        var floorMat = FloorMaterial(room);
+        var floors = structure.Find("First floor/Floors");
+        if (floors)
+            foreach (Transform t in floors)
+            {
+                var p = t.position;
+                if (Mathf.Abs(p.y - Storey) > 0.03f || p.x < room.x0 || p.x > room.x1 || p.z < room.z0 || p.z > room.z1) continue;
+                Paint(t.gameObject, floorMat);
+                tiles++;
+            }
+        var wallsGroup = structure.Find("First floor/Walls");
+        if (wallsGroup)
+            foreach (Transform t in wallsGroup)
+            {
+                if (!t.name.StartsWith("Wall Standard")) continue;
+                var p = t.position;
+                bool alongX = Mathf.Abs(Mathf.DeltaAngle(t.eulerAngles.y, 0f)) < 10f || Mathf.Abs(Mathf.DeltaAngle(t.eulerAngles.y, 180f)) < 10f;
+                var s = alongX
+                    ? new Segment { floor = 1, alongX = true, line = Mathf.RoundToInt(p.z), start = Mathf.RoundToInt(p.x - 1f) }
+                    : new Segment { floor = 1, alongX = false, line = Mathf.RoundToInt(p.x), start = Mathf.RoundToInt(p.z - 1f) };
+                var a = alongX ? RoomAt(1, s.start, s.line) : RoomAt(1, s.line, s.start);
+                var b = alongX ? RoomAt(1, s.start, s.line - 2) : RoomAt(1, s.line - 2, s.start);
+                if (a != room && b != room) continue;
+                PaintWallFaces(t.gameObject, s);
+                walls++;
+            }
+
+        // Walnut slats wrapping the desk corner (north wall right of the window, east wall up to its window): the streamer backdrop.
+        var walnut = Mat("Wall - Walnut Slat", new Color(0.36f, 0.24f, 0.16f), 0.3f);
+        var felt = Mat("Wall - Charcoal Felt", new Color(0.12f, 0.12f, 0.14f), 0.02f);
+        float north = 6f - WallFace, east = NewEast - WallFace;
+        const float slatY = 1.72f, slatH = 1.76f; // from the desk top up
+        Box("Slat backing", g, new Vector3(23.0f, Storey + slatY, north - 0.004f), new Vector3(1.86f, slatH, 0.008f), felt, false);
+        Box("Slat backing", g, new Vector3(east - 0.004f, Storey + slatY, 5.0f), new Vector3(0.008f, slatH, 1.9f), felt, false);
+        int n = 0;
+        for (float x = 22.1f; x <= east - 0.06f; x += 0.085f, n++)
+            Box("Slat", g, new Vector3(x, Storey + slatY, north - 0.008f - 0.0125f), new Vector3(0.05f, slatH, 0.025f), walnut, false);
+        for (float z = north - 0.06f; z >= 4.08f; z -= 0.085f, n++)
+            Box("Slat", g, new Vector3(east - 0.008f - 0.0125f, Storey + slatY, z), new Vector3(0.025f, slatH, 0.05f), walnut, false);
+        // Your poster on the east wall now hangs on the slats.
+        var poster = room.furniture.Find("Poster 2");
+        if (poster)
+        {
+            var pb = Bounds(poster.gameObject);
+            if (pb.center.x > east - 0.6f && pb.center.z > 4f) poster.position += new Vector3((east - 0.036f) - pb.max.x, 0f, 0f);
+        }
+        report.Add($"Room surfaces: {tiles} floor tiles, {walls} walls repainted navy, {n} walnut slats round the desk corner.");
+        CoveCeiling(room, g, report);
+    }
+
+    /// <summary>
+    /// A cove round the edge of the ceiling: a ledge with a lip, a little below the ceiling, so the LED strips sit hidden inside it and
+    /// only their glow shows - washed across the ceiling (a soft see-through glow, only with the RGB kit, like the strips).
+    /// </summary>
+    static void CoveCeiling(Room room, Transform g, List<string> report)
+    {
+        float floorY = room.Base;
+        // Where the ceiling really is (its underside), seen from the middle of the room.
+        float ceiling = floorY + Storey - 0.085f;
+        Physics.SyncTransforms();
+        if (Physics.Raycast(new Vector3((room.x0 + room.x1) * 0.5f, floorY + 1.5f, (room.z0 + room.z1) * 0.5f), Vector3.up, out var hit, Storey, ~0, QueryTriggerInteraction.Ignore))
+            ceiling = hit.point.y;
+        var plaster = Mat("Cove plaster", new Color(0.93f, 0.93f, 0.95f), 0.1f);
+        const float depth = 0.3f, drop = 0.16f, lip = 0.09f;
+        float shelfY = ceiling - drop;
+        // (start, along, into the room, length)
+        var runs = new[]
+        {
+            (new Vector3(room.x0, 0f, room.z0 + WallFace), Vector3.right, Vector3.forward, (float)(room.x1 - room.x0)),
+            (new Vector3(room.x0, 0f, room.z1 - WallFace), Vector3.right, Vector3.back, (float)(room.x1 - room.x0)),
+            (new Vector3(room.x0 + WallFace, 0f, room.z0), Vector3.forward, Vector3.right, (float)(room.z1 - room.z0)),
+            (new Vector3(room.x1 - WallFace, 0f, room.z0), Vector3.forward, Vector3.left, (float)(room.z1 - room.z0)),
+        };
+        // The glow: a soft gradient on the ceiling, from the wall into the room.
+        var glowTex = new Texture2D(4, 64, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, name = "Cove glow" };
+        for (int y = 0; y < 64; y++)
+        {
+            float a = Mathf.Pow(y / 63f, 1.8f); // the top of the texture (bright) is at the wall
+            for (int x = 0; x < 4; x++) glowTex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+        }
+        glowTex.Apply();
+        Color led = new Color(1f, 0.45f, 0.85f);
+        var strip = room.furniture.Find("LED strip N");
+        var sr = strip ? strip.GetComponentInChildren<Renderer>() : null;
+        if (sr && sr.sharedMaterial)
+        {
+            var m0 = sr.sharedMaterial;
+            led = m0.HasProperty("_EmissionColor") && m0.GetColor("_EmissionColor").maxColorComponent > 0.05f ? m0.GetColor("_EmissionColor") : m0.color;
+            led = new Color(Mathf.Clamp01(led.r), Mathf.Clamp01(led.g), Mathf.Clamp01(led.b), 1f);
+        }
+        string texPath = $"{MaterialFolder}/Cove glow.asset";
+        if (AssetDatabase.LoadAssetAtPath<Texture2D>(texPath)) AssetDatabase.DeleteAsset(texPath);
+        AssetDatabase.CreateAsset(glowTex, texPath);
+        var glowMat = new Material(Shader.Find("Legacy Shaders/Particles/Additive") ?? Shader.Find("Unlit/Transparent")) { name = "Cove glow" };
+        glowMat.mainTexture = glowTex;
+        if (glowMat.HasProperty("_TintColor")) glowMat.SetColor("_TintColor", new Color(led.r, led.g, led.b, 0.55f));
+        else glowMat.color = new Color(led.r, led.g, led.b, 0.6f);
+        string matPath = $"{MaterialFolder}/Cove glow.mat";
+        if (AssetDatabase.LoadAssetAtPath<Material>(matPath)) AssetDatabase.DeleteAsset(matPath);
+        AssetDatabase.CreateAsset(glowMat, matPath);
+
+        var glowRoot = new GameObject("Cove glow").transform;
+        glowRoot.SetParent(g, false);
+        glowRoot.gameObject.AddComponent<RoomUnlock>().key = "gpu";
+        int pieces = 0;
+        foreach (var (start, along, inward, length) in runs)
+        {
+            Vector3 mid = start + along * (length * 0.5f);
+            bool alongX = along == Vector3.right;
+            // the ledge and its lip
+            Vector3 shelfC = mid + inward * (depth * 0.5f);
+            shelfC.y = shelfY;
+            Box("Cove ledge", g, shelfC, alongX ? new Vector3(length, 0.03f, depth) : new Vector3(depth, 0.03f, length), plaster, false);
+            Vector3 lipC = mid + inward * (depth - 0.015f);
+            lipC.y = shelfY + lip * 0.5f;
+            Box("Cove lip", g, lipC, alongX ? new Vector3(length, lip, 0.03f) : new Vector3(0.03f, lip, length), plaster, false);
+            // the glow on the ceiling: a quad facing down, bright at the wall, fading into the room
+            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            Object.DestroyImmediate(quad.GetComponent<Collider>());
+            quad.name = "Glow";
+            quad.transform.SetParent(glowRoot, true);
+            const float reach = 0.9f;
+            Vector3 qc = mid + inward * (reach * 0.5f);
+            qc.y = ceiling - 0.004f;
+            quad.transform.position = qc;
+            // Quad faces -z by default; turn it to face down, its texture's "up" (bright end) towards the wall.
+            quad.transform.rotation = Quaternion.LookRotation(Vector3.up, -inward);
+            quad.transform.localScale = new Vector3(length, reach, 1f);
+            quad.GetComponent<Renderer>().sharedMaterial = glowMat;
+            quad.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            pieces++;
+        }
+        // The strips themselves sit inside the cove, just above the ledge, against the wall.
+        int moved = 0;
+        foreach (Transform t in room.furniture.GetComponentsInChildren<Transform>(true))
+        {
+            if (!t.name.StartsWith("LED strip")) continue;
+            var p = t.position;
+            t.position = new Vector3(p.x, shelfY + 0.03f, p.z);
+            moved++;
+        }
+        report.Add($"Ceiling cove all round the room ({pieces} sides) with the LED strips ({moved}) tucked inside; glow on the ceiling with the RGB kit.");
+    }
+
+    // ------------------------------------------------------------------ a bigger kitchen
+
+    const int KitchenOldEast = 20, KitchenNewEast = 24, KitchenZ0 = 6, KitchenZ1 = 10;
+
+    /// <summary>
+    /// Menu: G7l6 > Kitchen (bigger). Pushes the kitchen's outside (east) wall out by 4 m (4x4 m -> 8x4 m), with a flat roof on top.
+    /// The counters, sink, coffee machine and fridge that stood against that wall move out with it; the oven wall and everything else
+    /// stay where they are. Runs once (back up first: Assets/Scenes/Backups).
+    /// </summary>
+    [MenuItem("G7l6/Kitchen (bigger)")]
+    public static void BuildBiggerKitchen()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[Kitchen] Stop Play mode first."); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != TargetScene)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(TargetScene, OpenSceneMode.Single);
+        }
+        var house = scene.GetRootGameObjects().FirstOrDefault(go => go.name == "NewHouse");
+        if (!house) { Debug.LogWarning("[Kitchen] No 'NewHouse' in the scene."); return; }
+
+        missing.Clear(); prefabCache.Clear(); prefabIndex = null; placed = 0; skipped = 0;
+        wallMats.Clear(); floorMats.Clear(); doors.Clear(); mapWalls.Clear();
+        Materials();
+        DefinePlan();
+        root = house.transform;
+        structure = root.Find("Structure");
+        furnitureRoot = root.Find("Furniture");
+        if (!structure || !furnitureRoot) { Debug.LogWarning("[Kitchen] No Structure / Furniture under NewHouse."); return; }
+        bool already = structure.Find("Ground floor/Walls/Kitchen extension done");
+        foreach (var r in rooms) r.furniture = furnitureRoot.Find($"{FloorName(r.floor)} - {r.name}");
+        var kitchen = Find(0, "Kitchen");
+        var layout = house.GetComponent<HouseLayout>();
+
+        Vector3 houseScale = root.localScale, housePos = root.position;
+        Quaternion houseRot = root.rotation;
+        root.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        root.localScale = Vector3.one;
+        Physics.SyncTransforms();
+        var report = new List<string>();
+        Light newLight = null;
+        try
+        {
+            if (already) report.Add("The kitchen was already bigger - walls left as they are.");
+            else
+            {
+            const float y0 = 0f;
+            bool OnOldWall(Bounds b) => Mathf.Abs(b.center.x - KitchenOldEast) < 0.45f && b.size.x < 0.9f
+                                        && b.center.z > KitchenZ0 + 0.25f && b.center.z < KitchenZ1 - 0.25f && b.center.y > y0 - 0.25f && b.center.y < y0 + Storey - 0.1f;
+
+            // 1. The old east wall (walls, window, skirting, trims) and its blinds.
+            int removed = 0;
+            var ground = structure.Find("Ground floor");
+            foreach (Transform group in ground)
+            {
+                if (group.name == "Floors") continue;
+                var kill = new List<GameObject>();
+                foreach (Transform piece in group)
+                {
+                    var b = Bounds(piece.gameObject);
+                    if (b.size != Vector3.zero && OnOldWall(b)) kill.Add(piece.gameObject);
+                }
+                foreach (var k in kill) { Object.DestroyImmediate(k); removed++; }
+            }
+            if (kitchen.furniture)
+            {
+                var kill = new List<GameObject>();
+                foreach (Transform t in kitchen.furniture)
+                    if ((WindowDressingNames.Contains(t.name) || FitToWindow.Contains(t.name)) && Mathf.Abs(Bounds(t.gameObject).center.x - KitchenOldEast) < 0.6f)
+                        kill.Add(t.gameObject);
+                foreach (var k in kill) { Object.DestroyImmediate(k); removed++; }
+            }
+            // The porch post that would now stand in the middle of the new south wall.
+            var walls0 = Group(structure, "Ground floor/Walls");
+            foreach (Transform t in walls0.Cast<Transform>().ToList())
+                if (t.name.StartsWith("Wall Column") && Mathf.Abs(t.position.x - 22f) < 0.2f && Mathf.Abs(t.position.z - KitchenZ0) < 0.2f) { Object.DestroyImmediate(t.gameObject); removed++; }
+            report.Add($"Removed {removed} pieces of the kitchen's old east wall.");
+
+            // 2. What stood against that wall moves out with it (counters, sink, coffee machine, fridge, the dishes on them).
+            int moved = 0;
+            if (kitchen.furniture)
+                foreach (Transform item in kitchen.furniture)
+                {
+                    var b = Bounds(item.gameObject);
+                    if (b.size == Vector3.zero) continue;
+                    if (b.max.x < KitchenOldEast - 0.45f || b.center.x < KitchenOldEast - 1.3f) continue;
+                    item.position += new Vector3(KitchenNewEast - KitchenOldEast, 0f, 0f);
+                    moved++;
+                }
+            report.Add($"Moved {moved} things from the old east wall to the new one.");
+
+            // 3. Floor, ceiling and a flat roof.
+            var floors0 = Group(structure, "Ground floor/Floors");
+            for (int x = KitchenOldEast; x < KitchenNewEast; x += 2)
+            for (int z = KitchenZ0; z < KitchenZ1; z += 2)
+            {
+                var tile = Piece("Floor", floors0, new Vector3(x + 1f, y0, z + 1f), 0f);
+                if (tile) { SetLayer(tile, GroundLayer); Paint(tile, FloorMaterial(kitchen)); }
+                var ceiling = Piece("Floor", floors0, new Vector3(x + 1f, y0 + Storey - 0.04f, z + 1f), 0f, flip: true);
+                if (ceiling) { SetLayer(ceiling, 0); Paint(ceiling, ceilingMat); }
+                var cap = Piece("Floor", floors0, new Vector3(x + 1f, y0 + Storey + 0.05f, z + 1f), 0f);
+                if (cap) SetLayer(cap, GroundLayer);
+            }
+
+            // 4. New outside walls: a window on the north side (x 22-24) and one on the east side over the sink (z 8-10); the porch side stays solid.
+            var segs = new List<(Segment s, bool window)>
+            {
+                (new Segment { floor = 0, alongX = true, line = KitchenZ0, start = 20 }, false),
+                (new Segment { floor = 0, alongX = true, line = KitchenZ0, start = 22 }, false),
+                (new Segment { floor = 0, alongX = true, line = KitchenZ1, start = 20 }, false),
+                (new Segment { floor = 0, alongX = true, line = KitchenZ1, start = 22 }, true),
+                (new Segment { floor = 0, alongX = false, line = KitchenNewEast, start = 6 }, false),
+                (new Segment { floor = 0, alongX = false, line = KitchenNewEast, start = 8 }, true), // over the sink
+            };
+            foreach (var (s, window) in segs)
+            {
+                Vector3 at = s.Center(y0 - WallSink);
+                if (window)
+                {
+                    var w = Piece("Wall Standard (Window 1)", walls0, at, s.Yaw);
+                    MeshColliders(w);
+                    PaintWallFaces(w, s);
+                    Grow(Piece("Window 1", walls0, s.Center(y0), s.Yaw), 1.012f);
+                }
+                else PaintWallFaces(Piece("Wall Standard", walls0, at, s.Yaw), s);
+            }
+            foreach (var (vx, vz) in new[] { (KitchenNewEast, KitchenZ1), (KitchenOldEast, KitchenZ1) })
+            {
+                var col = Piece("Wall Column", walls0, new Vector3(vx, y0 - WallSink, vz), 0f);
+                if (col) col.transform.localScale = new Vector3(1.01f, (Storey - 0.03f) / 3.0363f, 1.01f);
+            }
+            foreach (Transform t in walls0) SetLayer(t.gameObject, WallLayer);
+            new GameObject("Kitchen extension done").transform.SetParent(walls0, false);
+
+            // Skirting along the new walls.
+            Physics.SyncTransforms();
+            var skirt = Group(structure, "Ground floor/Skirting boards");
+            var paint = Mat("Skirting", new Color(0.94f, 0.92f, 0.88f), 0.35f);
+            var runs = new[]
+            {
+                (new Vector3(KitchenOldEast, y0, KitchenZ0), Vector3.right, Vector3.forward, 4f),
+                (new Vector3(KitchenOldEast, y0, KitchenZ1), Vector3.right, Vector3.back, 4f),
+                (new Vector3(KitchenNewEast, y0, KitchenZ0), Vector3.forward, Vector3.left, 4f),
+            };
+            foreach (var (start, along, normal, length) in runs)
+                for (float s0 = 0f; s0 < length - 0.01f; s0 += 2f)
+                {
+                    Vector3 mid = start + along * (s0 + 1f);
+                    if (!Physics.Raycast(mid + normal * 0.7f + Vector3.up * 0.08f, -normal, out var hit, 1.2f, 1 << WallLayer, QueryTriggerInteraction.Ignore)) continue;
+                    Vector3 c = mid + Vector3.up * 0.058f;
+                    if (along == Vector3.right) c.z = hit.point.z + normal.z * 0.012f; else c.x = hit.point.x + normal.x * 0.012f;
+                    var board = Box("Skirting", skirt, c, along == Vector3.right ? new Vector3(2f, 0.1f, 0.024f) : new Vector3(0.024f, 0.1f, 2f), paint, false);
+                    board.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                }
+
+            // 5. A second ceiling light.
+            var lights = Group(root, "Lights");
+            float ceilingY = y0 + Storey - 0.09f;
+            var lamp = Spawn("Ceiling Lamp 2", lights) ?? Spawn("Ceiling Lamp 1", lights);
+            if (lamp)
+            {
+                var b = Bounds(lamp);
+                lamp.transform.position += new Vector3(22f, ceilingY, 8f) - new Vector3(b.center.x, b.max.y, b.center.z);
+            }
+            newLight = new GameObject("Light - Ground Kitchen (new part)").AddComponent<Light>();
+            newLight.transform.SetParent(lights, true);
+            newLight.transform.position = new Vector3(22f, ceilingY - 0.6f, 8f);
+            newLight.type = LightType.Point;
+            newLight.color = new Color(1f, 0.95f, 0.88f);
+            newLight.intensity = 1f;
+            newLight.range = 5.5f;
+            newLight.shadows = LightShadows.None;
+
+            // 6. The map.
+            if (layout)
+            {
+                var info = layout.rooms.Find(r => r.floor == 0 && r.name == "Kitchen");
+                if (info != null) info.rect = new Rect(kitchen.x0, kitchen.z0, kitchen.x1 - kitchen.x0, kitchen.z1 - kitchen.z0);
+                layout.walls.RemoveAll(w => w.floor == 0 && Mathf.Approximately(w.a.x, KitchenOldEast) && Mathf.Approximately(w.b.x, KitchenOldEast) && w.a.y >= KitchenZ0 && w.b.y <= KitchenZ1);
+                foreach (var (s, window) in segs) MapWall(s, window ? HouseLayout.WallType.Window : HouseLayout.WallType.Wall);
+                layout.walls.AddRange(mapWalls);
+                EditorUtility.SetDirty(layout);
+            }
+
+            var centre = new Vector3(22f, Storey * 0.5f, 8f);
+            foreach (var c in Physics.OverlapBox(centre, new Vector3(1.9f, Storey * 0.45f, 1.9f)))
+                if (!c.transform.IsChildOf(root)) report.Add($"Note: '{c.name}' (outside the house) overlaps the new kitchen - check it.");
+            report.Add("The kitchen is now twice as big (east wall moved out 4 m).");
+            }
+            PlaceCookingStations(kitchen, report);
+            OrganizeKitchen(kitchen, report);
+            KitchenFinish(kitchen, report);
+        }
+        finally
+        {
+            root.localScale = houseScale;
+            root.SetPositionAndRotation(housePos, houseRot);
+            Physics.SyncTransforms();
+        }
+        if (newLight) newLight.range *= houseScale.x;
+
+        HouseTaskSetup.BakeWalkMap();
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        if (missing.Count > 0) report.Add("Missing prefabs: " + string.Join(", ", missing.Distinct()));
+        string msg = "Kitchen done.\n" + string.Join("\n", report);
+        Debug.Log("[Kitchen] " + msg);
+        Directory.CreateDirectory("Library/G7l6");
+        File.WriteAllText("Library/G7l6/kitchen.log", msg);
+    }
+
+    // ------------------------------------------------------------------ cooking stations (rebuilt every run of the kitchen tool)
+
+    static readonly string[] CookingModels =
+    {
+        "meat-raw", "meat-patty", "carrot", "onion", "onion-half", "tomato", "tomato-slice", "cabbage", "paprika", "paprika-slice",
+        "mushroom", "mushroom-half", "cheese", "cheese-cut", "egg", "egg-half", "pot", "pot-lid", "pot-stew", "frying-pan", "bowl",
+        "bowl-broth", "bowl-soup", "salad", "plate-dinner", "plate-deep", "shaker-salt", "shaker-pepper", "bottle-oil", "bag",
+        "cooking-knife-chopping", "cutting-board", "meat-cooked", "egg-cooked", "leek", "celery-stick",
+        // what else is in the fridge / freezer / pantry (on show in their views, not to take)
+        "carton", "carton-small", "bottle-ketchup", "bottle-musterd", "soda-bottle", "honey", "peanut-butter", "can", "can-small",
+        "ice-cream-cup", "popsicle", "fish", "meat-sausage", "apple", "lemon", "orange", "broccoli", "radish", "box", "bag-flat",
+        "loaf", "soy", "bacon-raw",
+    };
+
+    /// <summary>
+    /// Menu: G7l6 > Link cooking models. Only fills in the Cooking kit's model list (the Food Kit models the cooking and the
+    /// fridge / freezer / pantry views use). Nothing in the house moves. Saves the scene if it had no other unsaved changes.
+    /// </summary>
+    [MenuItem("G7l6/Link cooking models")]
+    public static void LinkCookingModels()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[Kitchen] Stop Play mode first."); return; }
+        var kit = Object.FindObjectOfType<CookingKit>(true);
+        if (!kit) { Debug.LogWarning("[Kitchen] No Cooking kit in the open scene - open NewHouse and run G7l6 > Link cooking models."); return; }
+        bool wasDirty = kit.gameObject.scene.isDirty;
+        int added = 0;
+        var notFound = new List<string>();
+        foreach (var id in CookingModels)
+        {
+            if (kit.models.Any(e => e.id == id && e.model)) continue;
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>($"Assets/Models/FBX format/{id}.fbx");
+            if (!asset) { notFound.Add(id); continue; }
+            kit.models.RemoveAll(e => e.id == id);
+            kit.models.Add(new CookingKit.Entry { id = id, model = asset });
+            added++;
+        }
+        EditorUtility.SetDirty(kit);
+        EditorSceneManager.MarkSceneDirty(kit.gameObject.scene);
+        if (!wasDirty) EditorSceneManager.SaveScene(kit.gameObject.scene);
+        string msg = $"[Kitchen] Linked {added} cooking models" + (notFound.Count > 0 ? $" (not found: {string.Join(", ", notFound)})" : "") +
+                     (wasDirty ? ". The scene had other unsaved changes, so it isn't saved - save it to keep the links." : ", scene saved.");
+        Debug.Log(msg);
+        Directory.CreateDirectory("Library/G7l6");
+        File.WriteAllText("Library/G7l6/cooking-models.log", msg);
+    }
+
+    /// <summary>
+    /// The new half of the kitchen gets its cooking stations: a freezer (meat), a pantry cupboard (potatoes, onions, pasta, salt,
+    /// oil), a cookware cupboard (pot, frying pan, salad bowl) and a serving island. The fridge, sink, oven, microwave and cutting
+    /// board are the ones already in the kitchen. Also links the Food Kit models the cooking needs (CookingKit).
+    /// </summary>
+    static void PlaceCookingStations(Room kitchen, List<string> report)
+    {
+        if (!kitchen.furniture) { report.Add("Cooking stations skipped: no kitchen furniture group."); return; }
+        var old = kitchen.furniture.Find("Cooking stations");
+        if (old) Object.DestroyImmediate(old.gameObject);
+        var g = new GameObject("Cooking stations").transform;
+        g.SetParent(kitchen.furniture, false);
+
+        GameObject Station(string prefab, string name, float x, float z, float yaw, bool againstNorth, float scale = 1f)
+        {
+            var go = Spawn(prefab, g);
+            if (!go) return null;
+            go.name = name;
+            go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+            if (!Mathf.Approximately(scale, 1f)) go.transform.localScale *= scale;
+            var b = Bounds(go);
+            if (againstNorth) z = KitchenZ1 - WallFace - b.extents.z - 0.01f;
+            MoveBottomCenter(go, b, new Vector3(x, 0f, z));
+            FitBox(go);
+            placed++;
+            return go;
+        }
+        void Deco(string model, Transform on, float dx, float yaw, float scale = 1f)
+        {
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>($"Assets/Models/FBX format/{model}.fbx");
+            if (!asset || !on) return;
+            var go = (GameObject)PrefabUtility.InstantiatePrefab(asset, g.gameObject.scene);
+            go.transform.SetParent(g, true);
+            go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+            var gb = Bounds(go);
+            float biggest = Mathf.Max(gb.size.x, Mathf.Max(gb.size.y, gb.size.z));
+            go.transform.localScale *= scale / Mathf.Max(0.001f, biggest); // 'scale' = its size in metres
+            var top = Bounds(on.gameObject);
+            MoveBottomCenter(go, Bounds(go), new Vector3(top.center.x + dx, top.max.y, top.center.z));
+            foreach (var c in go.GetComponentsInChildren<Collider>()) Object.DestroyImmediate(c);
+        }
+
+        var freezer = Station("Fridge Variant", "Freezer", 20.5f, 0f, 180f, true);
+        var pantry = Station("Counter (Separated)", "Pantry", 21.4f, 0f, 180f, true);
+        var cookware = Station("Counter (Separated)", "Cookware drawer", 22.3f, 0f, 180f, true);
+        // What's in them, on show on top (the real ones come out when you take them).
+        if (pantry) { Deco("bag", pantry.transform, -0.15f, 20f, 0.3f); Deco("shaker-salt", pantry.transform, 0.1f, 0f, 0.1f); Deco("bottle-oil", pantry.transform, 0.2f, 0f, 0.24f); }
+        if (cookware) { Deco("pot", cookware.transform, -0.12f, 0f, 0.3f); Deco("frying-pan", cookware.transform, 0.18f, 30f, 0.38f); }
+
+        // The stations get a white outline when you look at them: that needs their meshes readable.
+        MakeReadable(kitchen.furniture, report);
+
+        // The models the cooking uses at runtime.
+        var kit = new GameObject("Cooking kit").AddComponent<CookingKit>();
+        kit.transform.SetParent(g, false);
+        int linked = 0;
+        foreach (var id in CookingModels)
+        {
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>($"Assets/Models/FBX format/{id}.fbx");
+            if (!asset) { missing.Add(id + ".fbx"); continue; }
+            kit.models.Add(new CookingKit.Entry { id = id, model = asset });
+            linked++;
+        }
+        EditorUtility.SetDirty(kit);
+        report.Add($"Cooking stations placed (freezer, pantry, cookware cupboard, serving island); {linked} Food Kit models linked.");
+    }
+
+    // ------------------------------------------------------------------ your room's plank floor (Poly Haven "plank flooring 04")
+
+    const string PlankFolder = "Assets/textures";
+
+    /// <summary>
+    /// The plank floor for your room from the downloaded textures (Assets/textures/plank_flooring_04_*): the colour and the normal map,
+    /// on the world-space floor shader so the planks run on across every tile. Textures are capped at 2K. Null if they're missing.
+    /// </summary>
+    static Material PlankFloor()
+    {
+        string diff = $"{PlankFolder}/plank_flooring_04_diff_4k.jpg", nor = $"{PlankFolder}/plank_flooring_04_nor_gl_4k.exr";
+        var albedo = AssetDatabase.LoadAssetAtPath<Texture2D>(diff);
+        if (!albedo) return null;
+        Prepare(diff, false);
+        Prepare(nor, true);
+        albedo = AssetDatabase.LoadAssetAtPath<Texture2D>(diff);
+        var normal = AssetDatabase.LoadAssetAtPath<Texture2D>(nor);
+        var shader = Shader.Find("G7l6/World Floor");
+        if (!shader) return null;
+        string path = $"{MaterialFolder}/Floor - Plank Flooring 04.mat";
+        var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (!m) { m = new Material(shader); AssetDatabase.CreateAsset(m, path); }
+        m.shader = shader;
+        m.SetTexture("_MainTex", albedo);
+        if (normal) m.SetTexture("_BumpMap", normal);
+        m.SetFloat("_BumpScale", 0.7f);
+        m.SetFloat("_Scale", 0.4f);       // the texture covers 2.5 m of floor
+        m.SetFloat("_Rotate", 1f);        // planks run along the room's length (east-west)
+        m.SetFloat("_Glossiness", 0.32f);
+        m.color = new Color(0.92f, 0.88f, 0.85f);
+        EditorUtility.SetDirty(m);
+        return m;
+    }
+
+    static void Prepare(string path, bool normalMap)
+    {
+        var imp = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (!imp) return;
+        bool changed = false;
+        if (imp.maxTextureSize != 2048) { imp.maxTextureSize = 2048; changed = true; }
+        var type = normalMap ? TextureImporterType.NormalMap : TextureImporterType.Default;
+        if (imp.textureType != type) { imp.textureType = type; changed = true; }
+        if (imp.wrapMode != TextureWrapMode.Repeat) { imp.wrapMode = TextureWrapMode.Repeat; changed = true; }
+        if (changed) imp.SaveAndReimport();
+    }
+
+    // ------------------------------------------------------------------ the kitchen, organised (rebuilt every run of the kitchen tool)
+
+    /// <summary>
+    /// Lays the kitchen out like a real one:
+    ///   south wall: one counter run - counter, the stove (oven), the prep counter (cutting board + microwave), then the fridge and the
+    ///               freezer side by side, the pantry and the cookware cupboard;
+    ///   east wall:  the coffee counter and the sink under the window;
+    ///   middle:     the serving island, with room to walk all round it.
+    /// Whatever stands on a counter (board, microwave, coffee machine, dishes, the oven's fire) moves with it.
+    /// </summary>
+    static readonly string[] StationNames = { "Fridge", "Freezer", "Pantry", "Cookware drawer", "Counter (Connected - Sink)", "Cutting Board", "Microwave", "Oven" };
+
+    /// <summary>Turns on Read/Write for the model files the kitchen stations use (the highlight outline needs it).</summary>
+    static void MakeReadable(Transform kitchenFurniture, List<string> report)
+    {
+        var paths = new HashSet<string>();
+        foreach (var t in kitchenFurniture.GetComponentsInChildren<Transform>(true))
+        {
+            if (!StationNames.Contains(t.name)) continue;
+            foreach (var mf in t.GetComponentsInChildren<MeshFilter>(true))
+                if (mf.sharedMesh && !mf.sharedMesh.isReadable) paths.Add(AssetDatabase.GetAssetPath(mf.sharedMesh));
+        }
+        int n = 0;
+        foreach (var p in paths)
+        {
+            if (AssetImporter.GetAtPath(p) is ModelImporter mi && !mi.isReadable) { mi.isReadable = true; mi.SaveAndReimport(); n++; }
+        }
+        if (n > 0) report.Add($"Read/Write switched on for {n} model file(s) the kitchen stations use (for the highlight).");
+    }
+
+    static void OrganizeKitchen(Room kitchen, List<string> report)
+    {
+        var all = new List<Transform>();
+        foreach (Transform t in kitchen.furniture) if (t.name != "Cooking stations") all.Add(t);
+        var g = kitchen.furniture.Find("Cooking stations");
+        if (g) foreach (Transform t in g) all.Add(t);
+        Transform Named(string n, System.Func<Bounds, bool> where = null) => all.FirstOrDefault(t => t.name == n && (where == null || where(Bounds(t.gameObject))));
+
+        var counterA = Named("Counter (Connected)", b => b.center.z < 7f);
+        var counterB = Named("Counter (Connected)", b => b.center.z >= 7f) ?? all.Where(t => t.name == "Counter (Connected)").Skip(1).FirstOrDefault();
+        var prep = Named("Counter (Connected) 2");
+        var oven = Named("Oven");
+        var fridge = Named("Fridge");
+        var freezer = Named("Freezer");
+        var pantry = Named("Pantry");
+        var cookware = Named("Cookware drawer");
+        var sink = Named("Counter (Connected - Sink)");
+        var microwave = Named("Microwave");
+        var board = Named("Cutting Board");
+        var coffee = Named("Coffee Machine");
+        var loose = new HashSet<Transform> { microwave, board, coffee };
+
+        var bases = new[] { counterA, counterB, prep, oven, fridge, freezer, pantry, cookware, sink }.Where(t => t).ToList();
+        // What rides on each base (the oven's fire, dishes, the pantry / cupboard's things on show) - not wall things above it.
+        var riders = new Dictionary<Transform, List<Transform>>();
+        foreach (var b in bases)
+        {
+            var bb = Bounds(b.gameObject);
+            var list = new List<Transform>();
+            foreach (var t in all)
+            {
+                if (bases.Contains(t) || loose.Contains(t)) continue;
+                var tb = Bounds(t.gameObject);
+                if (tb.size == Vector3.zero) tb = new Bounds(t.position, Vector3.zero);
+                if (tb.center.x < bb.min.x - 0.02f || tb.center.x > bb.max.x + 0.02f || tb.center.z < bb.min.z - 0.02f || tb.center.z > bb.max.z + 0.02f) continue;
+                if (tb.min.y < bb.max.y - 0.08f || tb.min.y > bb.max.y + 0.4f) continue;
+                list.Add(t);
+            }
+            riders[b] = list;
+        }
+
+        void Move(Transform t, float yaw, Vector3 bottomCentre)
+        {
+            var before = t.rotation;
+            var pivotBefore = t.position;
+            t.rotation = Quaternion.Euler(0f, yaw, 0f);
+            var b = Bounds(t.gameObject);
+            t.position += bottomCentre - new Vector3(b.center.x, b.min.y, b.center.z);
+            var delta = t.rotation * Quaternion.Inverse(before);
+            foreach (var r in riders[t])
+            {
+                r.position = t.position + delta * (r.position - pivotBefore);
+                r.rotation = delta * r.rotation;
+            }
+        }
+        Vector3 Size(Transform t, float yaw)
+        {
+            var saved = t.rotation;
+            t.rotation = Quaternion.Euler(0f, yaw, 0f);
+            var s = Bounds(t.gameObject).size;
+            t.rotation = saved;
+            return s;
+        }
+        void RunSouth(IEnumerable<Transform> run, float startX)
+        {
+            float x = startX;
+            foreach (var t in run.Where(r => r))
+            {
+                var s = Size(t, 0f);
+                Move(t, 0f, new Vector3(x + s.x * 0.5f, 0f, KitchenZ0 + WallFace + s.z * 0.5f + 0.01f));
+                x += s.x + 0.015f;
+            }
+        }
+        void OnTop(Transform item, Transform on, float along, float yawItem)
+        {
+            if (!item || !on) return;
+            item.rotation = Quaternion.Euler(0f, yawItem, 0f);
+            var ob = Bounds(on.gameObject);
+            var ib = Bounds(item.gameObject);
+            Vector3 c = new Vector3(ob.center.x, ob.max.y, ob.center.z) + Quaternion.Euler(0f, yawItem, 0f) * Vector3.right * along;
+            item.position += c - new Vector3(ib.center.x, ib.min.y, ib.center.z) + Vector3.up * 0.002f;
+        }
+
+        // The cold store and the cupboards, together in the old part (south wall, from the west corner).
+        RunSouth(new[] { fridge, freezer, pantry, cookware }, 16f + WallFace + 0.02f);
+        // The cooking line in the new part: a free counter, the stove, a free prep counter.
+        RunSouth(new[] { counterA, oven, prep }, KitchenOldEast + 0.15f);
+        // East wall: the microwave corner, a free counter, the sink under the window.
+        float eastFace = KitchenNewEast - WallFace;
+        if (counterB)
+        {
+            var s = Size(counterB, -90f);
+            Move(counterB, -90f, new Vector3(eastFace - s.x * 0.5f - 0.01f, 0f, KitchenZ0 + WallFace + s.z * 0.5f + 0.02f));
+        }
+        if (sink)
+        {
+            var s = Size(sink, -90f);
+            Move(sink, -90f, new Vector3(eastFace - s.x * 0.5f - 0.01f, 0f, 9.0f));
+        }
+        GameObject spare = null;
+        if (counterB && sink)
+        {
+            spare = Spawn("Counter (Separated)", g);
+            if (spare)
+            {
+                spare.name = "Counter (free)";
+                spare.transform.rotation = Quaternion.Euler(0f, -90f, 0f);
+                var s = Bounds(spare).size;
+                float z0 = Bounds(counterB.gameObject).max.z, z1 = Bounds(sink.gameObject).min.z;
+                MoveBottomCenter(spare, Bounds(spare), new Vector3(eastFace - s.x * 0.5f - 0.01f, 0f, (z0 + z1) * 0.5f));
+                FitBox(spare);
+            }
+        }
+        OnTop(microwave, counterB, 0f, -90f);
+        OnTop(coffee, counterA, 0.12f, 0f);
+
+        // The island: a butcher-block top on white cupboards, the cutting board on it, two stools on the far side.
+        float top = counterA ? Bounds(counterA.gameObject).max.y : 0.82f;
+        var island = BuildIsland(g, new Vector3(21.4f, 0f, 8.3f), top);
+        if (board && island) OnTop(board, island, -0.35f, 0f);
+        foreach (float dx in new[] { -0.4f, 0.4f })
+        {
+            var stool = Spawn("Stool", g);
+            if (!stool) continue;
+            MoveBottomCenter(stool, Bounds(stool), new Vector3(21.4f + dx, 0f, 9.05f));
+        }
+        Physics.SyncTransforms();
+        report.Add("Kitchen layout: fridge + freezer + pantry + cookware together; a free counter, the stove and a free prep counter in a line; " +
+                   "the microwave corner, a free counter and the sink on the east wall; a butcher-block island with the cutting board and two stools.");
+    }
+
+    /// <summary>A kitchen island 1.6 x 0.8 m: white cupboards with drawers and gold handles, a thick butcher-block top that overhangs.</summary>
+    static Transform BuildIsland(Transform g, Vector3 centre, float top)
+    {
+        if (!g) return null;
+        var root = new GameObject("Serving island").transform;
+        root.SetParent(g, false);
+        root.position = centre;
+        var white = Mat("Island cupboard", new Color(0.92f, 0.93f, 0.94f), 0.35f);
+        var wood = Mat("Island butcher block", new Color(0.74f, 0.52f, 0.32f), 0.3f);
+        var gold = Mat("Island handle", new Color(0.86f, 0.68f, 0.25f), 0.7f);
+        var toe = Mat("Island toe kick", new Color(0.25f, 0.25f, 0.27f), 0.2f);
+        const float W = 1.6f, D = 0.8f, slab = 0.05f;
+        float body = top - slab;
+        Box("Toe kick", root, centre + new Vector3(0f, 0.04f, 0f), new Vector3(W - 0.12f, 0.08f, D - 0.12f), toe, false);
+        Box("Cupboards", root, centre + new Vector3(0f, 0.08f + (body - 0.08f) * 0.5f, 0f), new Vector3(W - 0.06f, body - 0.08f, D - 0.06f), white, true);
+        Box("Top", root, centre + new Vector3(0f, top - slab * 0.5f, 0f), new Vector3(W, slab, D), wood, true); // solid: things put down on it rest on it
+        // Drawer fronts and handles on both long sides.
+        foreach (float side in new[] { -1f, 1f })
+            for (int i = 0; i < 3; i++)
+            {
+                float x = (i - 1) * (W - 0.06f) / 3f;
+                float z = side * ((D - 0.06f) * 0.5f + 0.006f);
+                Box("Drawer", root, centre + new Vector3(x, 0.08f + (body - 0.08f) * 0.72f, z), new Vector3((W - 0.06f) / 3f - 0.03f, (body - 0.08f) * 0.4f, 0.012f), white, false);
+                Box("Door", root, centre + new Vector3(x, 0.08f + (body - 0.08f) * 0.26f, z), new Vector3((W - 0.06f) / 3f - 0.03f, (body - 0.08f) * 0.44f, 0.012f), white, false);
+                Box("Handle", root, centre + new Vector3(x, 0.08f + (body - 0.08f) * 0.78f, z + side * 0.012f), new Vector3(0.12f, 0.014f, 0.014f), gold, false);
+            }
+        placed++;
+        return root;
+    }
+
+    /// <summary>A kitchen floor: cream and warm-grey checker tiles with grout lines, laid out in world space (no seams).</summary>
+    static Material KitchenFloor()
+    {
+        var shader = Shader.Find("G7l6/World Floor");
+        if (!shader) return null;
+        string texPath = $"{MaterialFolder}/Kitchen checker.asset";
+        var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+        if (!tex)
+        {
+            const int n = 512, half = n / 2, grout = 5;
+            tex = new Texture2D(n, n, TextureFormat.RGBA32, true) { name = "Kitchen checker", wrapMode = TextureWrapMode.Repeat };
+            var cream = new Color(0.93f, 0.9f, 0.83f);
+            var grey = new Color(0.58f, 0.56f, 0.53f);
+            var line = new Color(0.78f, 0.76f, 0.72f);
+            var rng = new System.Random(5);
+            for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                bool g = ((x / half) + (y / half)) % 2 == 1;
+                int lx = x % half, ly = y % half;
+                bool onGrout = lx < grout || ly < grout;
+                Color c = onGrout ? line : (g ? grey : cream);
+                float noise = Mathf.PerlinNoise(x * 0.04f + (g ? 30f : 0f), y * 0.04f) * 0.05f + (float)rng.NextDouble() * 0.012f;
+                c *= 0.97f + noise;
+                c.a = 1f;
+                tex.SetPixel(x, y, c);
+            }
+            tex.Apply();
+            AssetDatabase.CreateAsset(tex, texPath);
+        }
+        string path = $"{MaterialFolder}/Floor - Kitchen Checker.mat";
+        var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (!m) { m = new Material(shader); AssetDatabase.CreateAsset(m, path); }
+        m.shader = shader;
+        m.SetTexture("_MainTex", tex);
+        m.SetFloat("_BumpScale", 0f);
+        m.SetFloat("_Scale", 1f / 0.8f); // two 40 cm tiles each way per repeat
+        m.SetFloat("_Rotate", 0f);
+        m.SetFloat("_Glossiness", 0.45f);
+        m.color = Color.white;
+        EditorUtility.SetDirty(m);
+        return m;
+    }
+
+    /// <summary>The kitchen's floor tiles get the new floor; and the corner post the tool left at the old wall line goes.</summary>
+    static void KitchenFinish(Room kitchen, List<string> report)
+    {
+        var floors = structure.Find("Ground floor/Floors");
+        var mat = FloorMaterial(kitchen);
+        int tiles = 0;
+        if (floors)
+            foreach (Transform t in floors)
+            {
+                var p = t.position;
+                if (Mathf.Abs(p.y) > 0.03f || p.x < kitchen.x0 || p.x > kitchen.x1 || p.z < kitchen.z0 || p.z > kitchen.z1) continue;
+                Paint(t.gameObject, mat);
+                tiles++;
+            }
+        var walls = structure.Find("Ground floor/Walls");
+        int posts = 0;
+        if (walls)
+            foreach (Transform t in walls.Cast<Transform>().ToList())
+                if (t.name.StartsWith("Wall Column") && Mathf.Abs(t.position.x - KitchenOldEast) < 0.2f && (Mathf.Abs(t.position.z - KitchenZ1) < 0.2f || Mathf.Abs(t.position.z - KitchenZ0) < 0.2f))
+                { Object.DestroyImmediate(t.gameObject); posts++; }
+        report.Add($"Kitchen floor: {tiles} tiles in cream / grey checker." + (posts > 0 ? " Removed the stray corner post." : ""));
     }
 }

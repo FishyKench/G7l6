@@ -20,6 +20,8 @@ using UnityEngine;
 ///   entry-floor.request - limestone floor in the entrance + the TV remote held the right way round
 ///   doors.request - a styled, working door in every doorway (+ the garage door dressed up)
 ///   props.request - nicer models for the mop and the bucket (nothing else changes)
+///   cooking-models.request - links the Food Kit models the cooking + the fridge / freezer / pantry views use (nothing moves)
+///   kitchen.request - the kitchen twice as big (east wall out 4 m, counters/sink/fridge move with it)
 ///   gamer-room.request - your room twice as big (east wall out 4 m) + its progression furniture (see HouseBuilder.BuildGamerRoom)
 ///   vr-arena.request - rebuilds only the VR arena map (Neon District, 8v8 Domination); the house isn't touched
 /// </summary>
@@ -43,6 +45,8 @@ static class PendingSetup
     const string DoorsRequest = "Library/G7l6/doors.request";
     const string PropsRequest = "Library/G7l6/props.request";
     const string GamerRoomRequest = "Library/G7l6/gamer-room.request";
+    const string KitchenRequest = "Library/G7l6/kitchen.request";
+    const string CookingModelsRequest = "Library/G7l6/cooking-models.request";
     const double GiveUpAfterSeconds = 120;
 
     static double startedAt;
@@ -51,7 +55,7 @@ static class PendingSetup
     static PendingSetup()
     {
         if (!File.Exists(AddCatRequest) && !File.Exists(CatSizeRequest) && !File.Exists(FixStairsRequest) && !File.Exists(CatOverhaulRequest)
-            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest) && !File.Exists(MatchRequest) && !File.Exists(VRRequest) && !File.Exists(FinishRequest) && !File.Exists(ScatterRequest) && !File.Exists(ArenaRequest) && !File.Exists(StairsRequest) && !File.Exists(EntryRequest) && !File.Exists(DoorsRequest) && !File.Exists(PropsRequest) && !File.Exists(GamerRoomRequest)) return;
+            && !File.Exists(BuildHouseRequest) && !File.Exists(PlayerRoomRequest) && !File.Exists(CollidersRequest) && !File.Exists(MatchRequest) && !File.Exists(VRRequest) && !File.Exists(FinishRequest) && !File.Exists(ScatterRequest) && !File.Exists(ArenaRequest) && !File.Exists(StairsRequest) && !File.Exists(EntryRequest) && !File.Exists(DoorsRequest) && !File.Exists(PropsRequest) && !File.Exists(GamerRoomRequest) && !File.Exists(KitchenRequest) && !File.Exists(CookingModelsRequest)) return;
         startedAt = EditorApplication.timeSinceStartup;
         EditorApplication.update += Poll;
     }
@@ -79,7 +83,9 @@ static class PendingSetup
         bool doorsReq = File.Exists(DoorsRequest);
         bool propsReq = File.Exists(PropsRequest);
         bool gamerRoom = File.Exists(GamerRoomRequest);
-        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders && !match && !vr && !finish && !scatter && !arenaMap && !newStairs && !entry && !doorsReq && !propsReq && !gamerRoom) { EditorApplication.update -= Poll; return; }
+        bool kitchenReq = File.Exists(KitchenRequest);
+        bool modelsReq = File.Exists(CookingModelsRequest);
+        if (!addCat && !resize && !stairs && !overhaul && !buildHouse && !playerRoom && !colliders && !match && !vr && !finish && !scatter && !arenaMap && !newStairs && !entry && !doorsReq && !propsReq && !gamerRoom && !kitchenReq && !modelsReq) { EditorApplication.update -= Poll; return; }
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
 
         // Wait for the cat model to finish importing.
@@ -181,6 +187,16 @@ static class PendingSetup
         {
             File.Delete(GamerRoomRequest);
             HouseBuilder.BuildGamerRoom();
+        }
+        if (kitchenReq)
+        {
+            File.Delete(KitchenRequest);
+            HouseBuilder.BuildBiggerKitchen();
+        }
+        if (modelsReq)
+        {
+            File.Delete(CookingModelsRequest);
+            HouseBuilder.LinkCookingModels();
         }
     }
 }

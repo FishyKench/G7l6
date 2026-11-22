@@ -1,0 +1,49 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!28 &2800000
+Texture2D:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Cove glow
+  m_ImageContentsHash:
+    serializedVersion: 2
+    Hash: 00000000000000000000000000000000
+  m_ForcedFallbackFormat: 4
+  m_DownscaleFallback: 0
+  m_IsAlphaChannelOptional: 0
+  serializedVersion: 2
+  m_Width: 4
+  m_Height: 64
+  m_CompleteImageSize: 1024
+  m_MipsStripped: 0
+  m_TextureFormat: 4
+  m_MipCount: 1
+  m_IsReadable: 1
+  m_IsPreProcessed: 0
+  m_IgnoreMasterTextureLimit: 0
+  m_StreamingMipmaps: 0
+  m_StreamingMipmapsPriority: 0
+  m_VTOnly: 0
+  m_AlphaIsTransparency: 0
+  m_ImageCount: 1
+  m_TextureDimension: 2
+  m_TextureSettings:
+    serializedVersion: 2
+    m_FilterMode: 1
+    m_Aniso: 1
+    m_MipBias: 0
+    m_WrapU: 1
+    m_WrapV: 1
+    m_WrapW: 1
+  m_LightmapFormat: 0
+  m_ColorSpace: 1
+  m_PlatformBlob: 
+  image data: 1024
+  _typelessdata: ffffff00ffffff00ffffff00ffffff00ffffff00ffffff00ffffff00ffffff00ffffff01ffffff01ffffff01ffffff01ffffff01ffffff01ffffff01ffffff01ffffff02ffffff02ffffff02ffffff02ffffff03ffffff03ffffff03ffffff03ffffff04ffffff04ffffff04ffffff04ffffff05ffffff05ffffff05ffffff05ffffff06ffffff06ffffff06ffffff06ffffff08ffffff08ffffff08ffffff08ffffff09ffffff09ffffff09ffffff09ffffff0bffffff0bffffff0bffffff0bffffff0dffffff0dffffff0dffffff0dffffff0fffffff0fffffff0fffffff0fffffff11ffffff11ffffff11ffffff11ffffff13ffffff13ffffff13ffffff13ffffff16ffffff16ffffff16ffffff16ffffff18ffffff18ffffff18ffffff18ffffff1bffffff1bffffff1bffffff1bffffff1dffffff1dffffff1dffffff1dffffff20ffffff20ffffff20ffffff20ffffff23ffffff23ffffff23ffffff23ffffff26ffffff26ffffff26ffffff26ffffff2affffff2affffff2affffff2affffff2dffffff2dffffff2dffffff2dffffff30ffffff30ffffff30ffffff30ffffff34ffffff34ffffff34ffffff34ffffff37ffffff37ffffff37ffffff37ffffff3bffffff3bffffff3bffffff3bffffff3fffffff3fffffff3fffffff3fffffff43ffffff43ffffff43ffffff43ffffff47ffffff47ffffff47ffffff47ffffff4bffffff4bffffff4bffffff4bffffff50ffffff50ffffff50ffffff50ffffff54ffffff54ffffff54ffffff54ffffff59ffffff59ffffff59ffffff59ffffff5dffffff5dffffff5dffffff5dffffff62ffffff62ffffff62ffffff62ffffff67ffffff67ffffff67ffffff67ffffff6cffffff6cffffff6cffffff6cffffff71ffffff71ffffff71ffffff71ffffff76ffffff76ffffff76ffffff76ffffff7bffffff7bffffff7bffffff7bffffff80ffffff80ffffff80ffffff80ffffff86ffffff86ffffff86ffffff86ffffff8bffffff8bffffff8bffffff8bffffff91ffffff91ffffff91ffffff91ffffff96ffffff96ffffff96ffffff96ffffff9cffffff9cffffff9cffffff9cffffffa2ffffffa2ffffffa2ffffffa2ffffffa8ffffffa8ffffffa8ffffffa8ffffffaeffffffaeffffffaeffffffaeffffffb5ffffffb5ffffffb5ffffffb5ffffffbbffffffbbffffffbbffffffbbffffffc1ffffffc1ffffffc1ffffffc1ffffffc8ffffffc8ffffffc8ffffffc8ffffffceffffffceffffffceffffffceffffffd5ffffffd5ffffffd5ffffffd5ffffffdcffffffdcffffffdcffffffdcffffffe3ffffffe3ffffffe3ffffffe3ffffffeaffffffeaffffffeaffffffeafffffff1fffffff1fffffff1fffffff1fffffff8fffffff8fffffff8fffffff8ffffffffffffffffffffffffffffffff
+  m_StreamData:
+    serializedVersion: 2
+    offset: 0
+    size: 0
+    path: 

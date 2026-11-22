@@ -6,7 +6,7 @@ using UnityEngine.UI;
 /// <summary>
 /// The pause menu (Esc or P), in the same hand-drawn paper style as the HUD:
 ///   - a taped note with a wobbly "PAUSED", a boiling marker underline, the time and how long until Mom's home,
-///     and the buttons (Resume, Restart day, How to play, Settings, Quit) - the one you point at gets circled
+///     and the buttons (Resume, Unstuck me, Restart day, How to play, Settings, Quit) - the one you point at gets circled
 ///     in red marker, a bobbing arrow and a little bounce;
 ///   - a sticky note next to it that shows today so far (+ a random tip), the controls, or the settings
 ///     (mouse sensitivity and volume, saved between plays). It flips over when you switch.
@@ -189,6 +189,12 @@ public class PauseMenu : MonoBehaviour
         subtitle = Text(mainNote, "", 19, InkSoft, new Vector2(0, -176), new Vector2(430, 28));
 
         AddItem("Resume", Resume);
+        AddItem("Unstuck me", () =>
+        {
+            Resume();
+            var said = Unstuck.Rescue();
+            if (!string.IsNullOrEmpty(said)) GameHUD.Toast(said, said == "Unstuck!" ? GameHUD.Good : GameHUD.Info);
+        });
         AddItem("Restart day", () => { Freeze(false); paused = false; DayManager.RestartDay(); });
         AddItem("How to play", () => ShowSide(side == Side.Controls ? Side.Today : Side.Controls, flip: true));
         AddItem("Settings", () => ShowSide(side == Side.Settings ? Side.Today : Side.Settings, flip: true));
@@ -196,7 +202,7 @@ public class PauseMenu : MonoBehaviour
         for (int i = 0; i < items.Count; i++)
         {
             var it = items[i];
-            it.rt.anchoredPosition = new Vector2(0, -250 - i * 66);
+            it.rt.anchoredPosition = new Vector2(0, -250 - i * 56); // six of them, clear of the footer line
             it.appearDelay = 0.12f + i * 0.055f;
         }
         Text(mainNote, "ESC to get back to it", 15, InkSoft, new Vector2(0, -604), new Vector2(400, 22));
@@ -236,7 +242,7 @@ public class PauseMenu : MonoBehaviour
     {
         var it = new Item { label = label, action = action };
         it.rt = UIFactory.Rect(label, mainNote);
-        UIFactory.Place(it.rt, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(380, 60));
+        UIFactory.Place(it.rt, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(380, 54));
         it.circle = Doodle(it.rt, "circle", Red, Vector2.zero, new Vector2(260, 70), anchorCentre: true);
         it.arrow = UIFactory.Panel("Arrow", it.rt, Red);
         it.arrow.sprite = HudArt.Get("arrow");

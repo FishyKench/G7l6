@@ -18,6 +18,7 @@ public class GoalNote : MonoBehaviour
     GameObject goalBar;
     CanvasGroup group;
     string lastTitle;
+    float shownUntil;
     float pop;
 
     void Start()
@@ -90,9 +91,11 @@ public class GoalNote : MonoBehaviour
 #endif
         var day = DayManager.Instance;
         bool hide = VRHeadset.Worn || (day && day.State == DayManager.Phase.Report);
-        group.alpha = Mathf.MoveTowards(group.alpha, hide ? 0f : 1f, Time.unscaledDeltaTime * 4f);
-
         Current(out string t, out string d, out float progress);
+        if (t != lastTitle) shownUntil = Time.unscaledTime + 8f; // a new goal: up for a few seconds
+        hide |= !HudFocus.Full && Time.unscaledTime > shownUntil;
+        group.alpha = Mathf.MoveTowards(group.alpha, hide ? 0f : 1f, Time.unscaledDeltaTime * 3f);
+
         title.text = t;
         detail.text = d;
         goalBar.SetActive(progress >= 0f);

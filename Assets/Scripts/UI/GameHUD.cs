@@ -63,7 +63,39 @@ public class GameHUD : MonoBehaviour
             screenGroup.blocksRaycasts = false;
         }
         screenGroup.alpha = Mathf.MoveTowards(screenGroup.alpha, VRHeadset.Worn ? 0f : 1f, Time.unscaledDeltaTime * 4f);
+        UpdateVitals();
     }
+
+    // ------------------------------------------------------------------ the stress / tired card: only when it's worth watching
+
+    CanvasGroup vitals;
+    bool vitalsLooked;
+    float lastStress = -1f, lastTired = -1f, vitalsChangedAt = -99f;
+
+    void UpdateVitals()
+    {
+        if (!vitalsLooked)
+        {
+            vitalsLooked = true;
+            foreach (var t in GetComponentsInChildren<Transform>(true))
+                if (t.name == "Vitals") { vitals = t.GetComponent<CanvasGroup>() ?? t.gameObject.AddComponent<CanvasGroup>(); break; }
+        }
+        if (!vitals) return;
+        float stress = StressManager.Instance ? StressManager.Instance.Normalized : 0f;
+        float tired = ExhaustionManager.Instance ? ExhaustionManager.Instance.Normalized : 0f;
+        // it pops up when one of them has moved by 5% (a slow creep doesn't keep it on screen)
+        if (lastStress < 0f) { lastStress = stress; lastTired = tired; }
+        if (Mathf.Abs(stress - lastStress) > 0.05f || Mathf.Abs(tired - lastTired) > 0.05f)
+        {
+            vitalsChangedAt = Time.unscaledTime;
+            lastStress = stress;
+            lastTired = tired;
+        }
+        bool show = HudFocus.Full || stress > 0.34f || tired > 0.34f || Time.unscaledTime - vitalsChangedAt < 4f;
+        vitals.alpha = Mathf.MoveTowards(vitals.alpha, show ? 1f : 0f, Time.unscaledDeltaTime * 3f);
+    }
+
+
 
     public static void Toast(string message, Color color)
     {
@@ -86,12 +118,14 @@ public class GameHUD : MonoBehaviour
         {
             var note = notes[task];
             notes.Remove(task);
-            if (note) note.Finish(task && task.LastSucceeded);
+            if (note && !note.gameObject.activeSelf) Destroy(note.gameObject); // it was tucked away: just goes
+            else if (note) note.Finish(task && task.LastSucceeded);
         }
 
         var tasks = GameManager.Instance ? GameManager.Instance.GetHudTasks() : null;
         int count = tasks != null ? tasks.Count : 0;
-        float fit = count == 0 ? 1f : Mathf.Clamp(notesMaxHeight / (count * noteSpacing), 0.6f, 1f);
+        int shown = count; // every note, always: you need to see everything you've got on to plan
+        float fit = shown == 0 ? 1f : Mathf.Clamp(notesMaxHeight / (shown * noteSpacing), 0.6f, 1f);
 
         for (int i = 0; i < count; i++)
         {
@@ -104,9 +138,10 @@ public class GameHUD : MonoBehaviour
                 note.Bind(task, slotY + 30f);
                 notes[task] = note;
             }
-            note.SetSlot(slotY, fit);
+            bool visible = i < shown;
+            if (note.gameObject.activeSelf != visible) note.gameObject.SetActive(visible);
+            if (visible) note.SetSlot(slotY, fit);
         }
-
         if (emptyHint)
             emptyHint.alpha = Mathf.MoveTowards(emptyHint.alpha, count == 0 ? 1f : 0f, Time.unscaledDeltaTime * 3f);
     }
