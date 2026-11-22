@@ -40,6 +40,7 @@ public class DayHud : MonoBehaviour
         screenGroup.blocksRaycasts = false;
         BuildClock();
         BuildPhone();
+        gameObject.AddComponent<GoalNote>(); // the current goal + Mom's trust (bottom left)
     }
 
     // ------------------------------------------------------------------ clock
@@ -273,11 +274,12 @@ public class DayHud : MonoBehaviour
         Row("Homework", r.homework, -r.homeworkPoints);
         Row("Chores done", r.done.ToString(), r.choreBonus);
         Row("Chores failed", r.failed.ToString(), -r.failPenalty);
+        if (r.qualityCount > 0) Row("Done really well", r.qualityCount.ToString(), r.qualityPoints);
         Row("Mom found", r.found.Count == 0 ? "nothing!" : r.found.Count.ToString(), 0);
         int shownFindings = 0;
         foreach (var f in r.found)
         {
-            if (shownFindings == 7) { Row($"...and {r.found.Count - 7} more", "", 0, true); break; }
+            if (shownFindings == 4) { Row($"...and {r.found.Count - 4} more", "", 0, true); break; }
             Row(f.what, "", -f.points, true);
             shownFindings++;
         }
@@ -289,6 +291,11 @@ public class DayHud : MonoBehaviour
         UIFactory.Place(rule.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0, y + 8f), new Vector2(560, 2));
         Line(card, "Allowance", 21, Ink, new Vector2(48, y - 12f), new Vector2(300, 30), TextAlignmentOptions.MidlineLeft, anchorLeft: true).fontStyle = FontStyles.Bold;
         Line(card, r.allowance > 0 ? "+$" + r.allowance : "$0  (grounded)", 22, r.allowance > 0 ? Green : Red, new Vector2(-48, y - 12f), new Vector2(240, 30),
+            TextAlignmentOptions.MidlineRight, anchorRight: true).fontStyle = FontStyles.Bold;
+        // Mom's Trust (what she lets you do tomorrow).
+        Line(card, "Mom's trust", 21, Ink, new Vector2(48, y - 46f), new Vector2(300, 30), TextAlignmentOptions.MidlineLeft, anchorLeft: true).fontStyle = FontStyles.Bold;
+        string trustText = $"{r.trust}/100" + (r.trustDelta != 0 ? $"  ({(r.trustDelta > 0 ? "+" : "")}{r.trustDelta})" : "");
+        Line(card, trustText, 22, r.trustDelta > 0 ? Green : r.trustDelta < 0 ? Red : Ink, new Vector2(-48, y - 46f), new Vector2(260, 30),
             TextAlignmentOptions.MidlineRight, anchorRight: true).fontStyle = FontStyles.Bold;
 
         var quote = Line(card, $"\"{r.momSays}\"", 24, Ink, new Vector2(0, 92), new Vector2(560, 64), TextAlignmentOptions.Center, anchorBottom: true);

@@ -52,6 +52,7 @@ public class VRHud : MonoBehaviour
     TextMeshProUGUI classText, pickText, nadeText, pickTitle;
     RectTransform cardsRoot;
     readonly List<(RectTransform root, Image frame, Image glow, TextMeshProUGUI name)> cards = new List<(RectTransform, Image, Image, TextMeshProUGUI)>();
+    readonly List<(GameObject root, TextMeshProUGUI text)> cardLocks = new List<(GameObject, TextMeshProUGUI)>();
     readonly List<(Image icon, TextMeshProUGUI count, Image slot)> gear = new List<(Image, TextMeshProUGUI, Image)>();
     static Sprite rounded;
 
@@ -464,6 +465,16 @@ public class VRHud : MonoBehaviour
             string kit = (l.frags > 0 ? $"[G] FRAG x{l.frags}" : "") + (l.frags > 0 && l.flashes > 0 ? "    " : "") + (l.flashes > 0 ? $"[Q] FLASH x{l.flashes}" : "");
             Text(card, kit, 16, c, TextAlignmentOptions.Center, new Vector2(0, -205), new Vector2(270, 24)).fontStyle = FontStyles.Bold;
             cards.Add((card, frame, glow, name));
+
+            // Locked until your rank is high enough (see VRUnlocks).
+            var lockPanel = UIFactory.Panel("Locked", card, new Color(0.02f, 0.02f, 0.05f, 0.82f));
+            lockPanel.sprite = Rounded();
+            lockPanel.type = Image.Type.Sliced;
+            UIFactory.Fill(lockPanel.rectTransform);
+            var lockText = Text(lockPanel.rectTransform, "", 26, new Color(1f, 0.82f, 0.3f), TextAlignmentOptions.Center, Vector2.zero, new Vector2(260, 120), centre: true);
+            lockText.fontStyle = FontStyles.Bold;
+            lockText.enableWordWrapping = true;
+            cardLocks.Add((lockPanel.gameObject, lockText));
         }
         cardsRoot.gameObject.SetActive(false);
     }
@@ -540,6 +551,13 @@ public class VRHud : MonoBehaviour
             if (briefing)
                 for (int i = 0; i < cards.Count; i++)
                     if (RectTransformUtility.RectangleContainsScreenPoint(cards[i].root, Input.mousePosition, null)) hover = i;
+            for (int i = 0; i < cardLocks.Count; i++)
+            {
+                var role = VRLoadout.All[i];
+                bool locked = !VRUnlocks.Has(role);
+                cardLocks[i].root.SetActive(locked);
+                if (locked) cardLocks[i].text.text = $"LOCKED\n<size=70%>reach {Campaign.RankName(VRUnlocks.Needs(role)).ToUpperInvariant()} in Ranked</size>";
+            }
             for (int i = 0; i < cards.Count; i++)
             {
                 bool on = VRLoadout.All[i] == p.NextRole || i == hover;

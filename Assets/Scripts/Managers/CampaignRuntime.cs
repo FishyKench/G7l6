@@ -15,6 +15,7 @@ using UnityEngine;
 /// Debug keys:  PageDown = next day (reload), Shift+PageDown = previous day, Ctrl+PageDown = Friday.
 ///              Ctrl+Equals = +50 RP, Ctrl+Minus = -50 RP, Ctrl+Backslash = rating exactly at the tournament gate.
 ///              Ctrl+Slash = open the week summary now, Ctrl+Comma = show the day intro again.
+///              Ctrl+End = jump to this season's Season Final (week 3, Friday), Ctrl+Period = preview the season ending now.
 /// </summary>
 public class CampaignRuntime : MonoBehaviour
 {
@@ -89,7 +90,7 @@ public class CampaignRuntime : MonoBehaviour
             if (rules.tournament)
             {
                 match.breakLength = 30f; // best of 5 has to fit before Mom gets home early
-                match.taskName = "TOURNAMENT";
+                match.taskName = Campaign.TournamentName;
             }
         }
     }
@@ -107,6 +108,7 @@ public class CampaignRuntime : MonoBehaviour
         if (day.State == DayManager.Phase.Day)
         {
             Mails(day.Hour);
+            Story.Tick(day.Hour);
             Tips(day.Hour);
             Scrim(day.Hour);
         }
@@ -221,6 +223,8 @@ public class CampaignRuntime : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Backslash)) { Campaign.SetRating(Campaign.GateRating); GameHUD.Toast("[debug] rating = " + Campaign.RankText, GameHUD.Info); }
         if (Input.GetKeyDown(KeyCode.Slash)) ui.ShowSummary();
         if (Input.GetKeyDown(KeyCode.Comma)) ui.ShowIntro(rules);
+        if (Input.GetKeyDown(KeyCode.Period)) ui.ShowEnding(); // preview the season ending you'd get right now
+        if (Input.GetKeyDown(KeyCode.End)) { Campaign.JumpToSeasonFinal(); DayManager.RestartDay(); }
 #endif
     }
 }

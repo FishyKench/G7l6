@@ -152,10 +152,13 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
     }
 
     /// <summary>The wardrobe says the clean clothes are in.</summary>
-    public void ClothesPutAway()
+    public void ClothesPutAway(float foldQuality = 1f)
     {
         if (!IsActive || phase != Phase.PutAway) return;
-        Complete("Laundry done - clothes put away!");
+        // How well it was folded: Mom notices.
+        if (foldQuality >= 0.99f) { DayManager.AddQuality("Laundry folded perfectly", 4); Complete("Laundry done - perfectly folded!"); }
+        else if (foldQuality >= 0.6f) { DayManager.AddQuality("Laundry folded neatly", 2); Complete("Laundry done - neatly folded."); }
+        else Complete("Laundry done... a bit wrinkly.");
     }
 
     public override Vector3 Where => phase == Phase.PutAway && wardrobe ? wardrobe.transform.position : transform.position;

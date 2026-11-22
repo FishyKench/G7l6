@@ -221,6 +221,64 @@ public class DirtyClothesPiece : MonoBehaviour, IInteractable, IPromptProvider
         return m;
     }
 
+    // ------------------------------------------------------------------ shared with the wardrobe / folding game
+
+    /// <summary>0 outside, 1 fabric, 2 details - the garment's outline (x across, z from hem to collar, about -0.52..0.52).</summary>
+    internal static int ShapeAt(string kind, float x, float z) => Shape(kind, x, z);
+
+    internal static Color RandomColour(string kind) => kind == "trousers" ? Jeans[Random.Range(0, Jeans.Length)] : Colours[Random.Range(0, Colours.Length)];
+
+    internal static Material[] Materials(string kind, Color colour) =>
+        new[] { Mat(colour), Mat(kind == "trousers" ? new Color(0.78f, 0.6f, 0.3f) : colour * 0.68f) };
+
+    /// <summary>The garment as a flat, two-sided cut-out (no crumple), lying in the XZ plane, 'thickness' thick. Submesh 0 fabric, 1 details.</summary>
+    internal static Mesh FlatGarment(string kind, float thickness = 0.008f)
+    {
+        const float cell = 0.012f, ext = 0.52f;
+        int n = Mathf.CeilToInt(ext * 2f / cell);
+        var region = new int[n, n];
+        for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            region[i, j] = Shape(kind, -ext + (i + 0.5f) * cell, -ext + (j + 0.5f) * cell);
+        var verts = new List<Vector3>();
+        var top = new int[n + 1, n + 1];
+        var bottom = new int[n + 1, n + 1];
+        for (int i = 0; i <= n; i++)
+        for (int j = 0; j <= n; j++)
+        {
+            top[i, j] = bottom[i, j] = -1;
+            bool used = false;
+            for (int di = -1; di <= 0 && !used; di++)
+            for (int dj = -1; dj <= 0 && !used; dj++)
+            {
+                int a = i + di, c = j + dj;
+                used = a >= 0 && c >= 0 && a < n && c < n && region[a, c] > 0;
+            }
+            if (!used) continue;
+            float x = -ext + i * cell, z = -ext + j * cell;
+            top[i, j] = verts.Count; verts.Add(new Vector3(x, thickness * 0.5f, z));
+            bottom[i, j] = verts.Count; verts.Add(new Vector3(x, -thickness * 0.5f, z));
+        }
+        var tris = new[] { new List<int>(), new List<int>() };
+        for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+        {
+            int r = region[i, j];
+            if (r == 0) continue;
+            var list = tris[r == 2 ? 1 : 0];
+            list.AddRange(new[] { top[i, j], top[i, j + 1], top[i + 1, j], top[i + 1, j], top[i, j + 1], top[i + 1, j + 1] });
+            list.AddRange(new[] { bottom[i, j], bottom[i + 1, j], bottom[i, j + 1], bottom[i + 1, j], bottom[i + 1, j + 1], bottom[i, j + 1] });
+        }
+        var m = new Mesh { name = kind + " (flat)" };
+        m.SetVertices(verts);
+        m.subMeshCount = 2;
+        m.SetTriangles(tris[0], 0);
+        m.SetTriangles(tris[1], 1);
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+        return m;
+    }
+
     static Material Mat(Color c)
     {
         var m = new Material(Shader.Find("Standard")) { color = c };

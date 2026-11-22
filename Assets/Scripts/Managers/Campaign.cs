@@ -29,7 +29,15 @@ public static class Campaign
 
     public const int Days = 5, Friday = 4;
     public const int PointsPerRank = 100, MaxRating = 499, StartRating = 50, ScrimBonus = 15;
-    public const int Prize1st = 150, Prize2nd = 60;
+    /// <summary>A season is 3 weeks; the last week's Friday tournament is the Season Final (bigger prize, see Story for the endings).</summary>
+    public const int SeasonWeeks = 3;
+    public static int Season => (Week - 1) / SeasonWeeks + 1;
+    public static int WeekOfSeason => (Week - 1) % SeasonWeeks + 1;
+    public static bool FinalWeek => WeekOfSeason == SeasonWeeks;
+    public static bool IsFinalWeek(int wk) => (wk - 1) % SeasonWeeks + 1 == SeasonWeeks;
+    public static string TournamentName => FinalWeek ? "SEASON FINAL" : "TOURNAMENT";
+    public static int Prize1st => FinalWeek ? 500 : 150;
+    public static int Prize2nd => FinalWeek ? 150 : 60;
     public static readonly string[] DayNames = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday" };
     public static readonly string[] DayShort = { "Mon", "Tue", "Wed", "Thu", "Fri" };
     public static readonly string[] RankNames = { "Bronze", "Silver", "Gold", "Diamond", "Champion" };
@@ -137,10 +145,59 @@ public static class Campaign
 
     public static int PointsToNextRank => CurrentRank == Rank.Champion ? 0 : PointsPerRank - Rating % PointsPerRank;
 
+    // ------------------------------------------------------------------ promotion matches
+    // Reaching the next rank isn't automatic: your rating stops 1 short of it and the next ranked match is a PROMOTION MATCH.
+    // Win it: promoted (+10 into the new rank). Lose it (or leave it unfinished): back to 30 below the line.
+
+    static int promoTo = -1;
+    /// <summary>Set when today's match settled a promotion ("PROMOTED to Gold" / "promotion failed"); shown on the report card.</summary>
+    public static string LastPromoText = "";
+    public static bool PromoPending { get { Load(); return promoTo >= 0; } }
+    public static Rank PromoRank { get { Load(); return (Rank)Mathf.Clamp(promoTo, 0, 4); } }
+
+    static bool SettlePromotion(bool won)
+    {
+        if (promoTo < 0) return false;
+        Rank target = (Rank)promoTo;
+        int line = promoTo * PointsPerRank;
+        promoTo = -1;
+        if (won)
+        {
+            rating = Mathf.Min(MaxRating, line + 10);
+            LastPromoText = $"PROMOTED to {RankName(target)}!";
+            string unlocked = VRUnlocks.NewAt(target);
+            GameHUD.Toast($"PROMOTED! You are now {RankName(target)}" + (unlocked.Length > 0 ? $"  -  {unlocked} unlocked!" : ""), GameHUD.Good);
+            Mail.Send("Ranked League", $"Promoted to {RankName(target)}",
+                $"You won your promotion match and reached {RankName(target)} ({rating} RP)." + (unlocked.Length > 0 ? $"\n\nNew class unlocked: {unlocked}." : "") + "\n\n- The Ranked League", Mail.Kind.Info);
+        }
+        else
+        {
+            rating = Mathf.Max(0, line - 30);
+            LastPromoText = "promotion failed";
+            GameHUD.Toast($"Promotion match lost - back to {rating} RP. Climb again!", GameHUD.Bad);
+        }
+        Save();
+        Changed?.Invoke();
+        return true;
+    }
+
     public static void AddRating(int delta, string why = null)
     {
         Load();
         int before = rating;
+        if (delta < 0) promoTo = -1;
+        int next = (rating / PointsPerRank + 1) * PointsPerRank;
+        if (delta > 0 && next <= (int)Rank.Champion * PointsPerRank && rating + delta >= next)
+        {
+            // Stop 1 short: the next ranked match is the promotion match.
+            rating = next - 1;
+            bool fresh = promoTo < 0;
+            promoTo = next / PointsPerRank;
+            Save();
+            Changed?.Invoke();
+            if (fresh) GameHUD.Toast($"PROMOTION MATCH unlocked! Win your next ranked match to reach {RankName((Rank)promoTo)}.", GameHUD.Good);
+            return;
+        }
         rating = Mathf.Clamp(rating + delta, 0, MaxRating);
         if (rating == before) return;
         Save();
@@ -158,6 +215,7 @@ public static class Campaign
     public static void SetRating(int value)
     {
         Load();
+        promoTo = -1;
         rating = Mathf.Clamp(value, 0, MaxRating);
         Save();
         Changed?.Invoke();
@@ -201,8 +259,12 @@ public static class Campaign
                 if (tournament)
                 {
                     r.tournament = true; r.matchStartHour = 15.75f; r.botSkill = 1.35f;
-                    r.twist = new[] { "TOURNAMENT DAY - Mom is home early!", $"1st place ${Prize1st}   -   2nd place ${Prize2nd}" };
+                    r.twist = IsFinalWeek(wk)
+                        ? new[] { "THE SEASON FINAL - Mom is coming home early to watch!", $"1st place ${Prize1st}   -   2nd place ${Prize2nd}" }
+                        : new[] { "TOURNAMENT DAY - Mom is home early!", $"1st place ${Prize1st}   -   2nd place ${Prize2nd}" };
                 }
+                else if (wk == week && Rating >= GateRatingFor(wk) && !Trust.CanGoToTournament)
+                    r.twist = new[] { "No tournament: Mom won't drive you (trust too low).", "Mom is home early. Maximum chaos!" };
                 else
                     r.twist = new[] { "No tournament: you missed " + RankName(GateRankFor(wk)) + ".", "Mom is home early. Maximum chaos!" };
                 break;
@@ -227,6 +289,7 @@ public static class Campaign
     public static bool AllowRandomTask(TaskBase t) => !(t is CeilingLeakTask) || Today.leaks;
 
     public static Rank GateRankFor(int wk) => wk >= 2 ? Rank.Diamond : Rank.Gold;
+    static int GateRatingFor(int wk) => (int)GateRankFor(wk) * PointsPerRank;
 
     // ------------------------------------------------------------------ begin a day
 
@@ -246,13 +309,14 @@ public static class Campaign
         }
         matchRecorded = false;
         tournamentPaid = false;
+        LastPromoText = "";
         TournamentLive = false;
         if (dayIndex == Friday)
         {
             // Decide once, on the Friday load: eligible or not. The rating can't change on Friday (the tournament is separate).
             if (tournamentResult == (int)TournamentResult.None || tournamentResult == (int)TournamentResult.Pending || tournamentResult == (int)TournamentResult.NotEligible)
             {
-                tournamentEligible = Rating >= GateRating;
+                tournamentEligible = Rating >= GateRating && Trust.CanGoToTournament; // Mom has to drive you there
                 tournamentResult = (int)(tournamentEligible ? TournamentResult.Pending : TournamentResult.NotEligible);
             }
             else tournamentEligible = false; // already played this Friday (restart): no second tournament
@@ -286,6 +350,7 @@ public static class Campaign
         matchRecorded = true;
         if (TournamentToday) { PayTournament(wins, losses, won); return true; }
         if (!Once($"d{dayIndex}.ranked")) return false; // one ranked result per day (restarting the day can't farm rating or prize money)
+        if (SettlePromotion(won)) return true;
         AddRating(RatingDeltaFor(wins, losses, won), won ? "Ranked win" : "Ranked loss");
         return true;
     }
@@ -298,7 +363,7 @@ public static class Campaign
         {
             matchRecorded = true;
             if (TournamentToday) PayTournament(wins, losses, false, finished: false);
-            else if (wins + losses > 0 && Once($"d{dayIndex}.ranked")) AddRating(RatingDeltaFor(wins, losses, false), "Unfinished match");
+            else if (wins + losses > 0 && Once($"d{dayIndex}.ranked") && !SettlePromotion(false)) AddRating(RatingDeltaFor(wins, losses, false), "Unfinished match");
         }
         else if (!matchRecorded && TournamentToday)
         {
@@ -327,12 +392,14 @@ public static class Campaign
         else res = TournamentResult.Out;
         tournamentResult = (int)res;
         Save();
+        if (res == TournamentResult.First || res == TournamentResult.Second)
+            Trophies.Add(FinalWeek, res == TournamentResult.First, FinalWeek ? $"Season {Season} Final" : $"Season {Season}, week {WeekOfSeason} tournament");
 
         string place = res == TournamentResult.First ? "1st place" : res == TournamentResult.Second ? "2nd place" : "no podium";
         if (prize > 0)
         {
             Wallet.Earn(prize, $"Ranked League - tournament {place} ({tournamentScore})", Wallet.Category.Prize);
-            GameHUD.Toast($"TOURNAMENT {place.ToUpperInvariant()}!  +${prize}", GameHUD.Good);
+            GameHUD.Toast($"{TournamentName} {place.ToUpperInvariant()}!  +${prize}", GameHUD.Good);
         }
         else GameHUD.Toast(finished ? $"Tournament over: {tournamentScore}. No prize this time." : "The tournament ended before you could finish.", GameHUD.Bad);
 
@@ -387,6 +454,7 @@ public static class Campaign
         week = Mathf.Max(1, PlayerPrefs.GetInt(P + "Week", 1));
         dayIndex = Mathf.Clamp(PlayerPrefs.GetInt(P + "Day", 0), 0, Days - 1);
         rating = Mathf.Clamp(PlayerPrefs.GetInt(P + "Rating", StartRating), 0, MaxRating);
+        promoTo = PlayerPrefs.GetInt(P + "Promo", -1);
         weekStartRating = PlayerPrefs.GetInt(P + "WeekStartRating", rating);
         weekStartFollowers = PlayerPrefs.GetInt(P + "WeekStartFollowers", 0);
         dayDone = PlayerPrefs.GetInt(P + "Done", 0) == 1;
@@ -412,6 +480,7 @@ public static class Campaign
         PlayerPrefs.SetInt(P + "Week", week);
         PlayerPrefs.SetInt(P + "Day", dayIndex);
         PlayerPrefs.SetInt(P + "Rating", rating);
+        PlayerPrefs.SetInt(P + "Promo", promoTo);
         PlayerPrefs.SetInt(P + "WeekStartRating", weekStartRating);
         PlayerPrefs.SetInt(P + "WeekStartFollowers", weekStartFollowers);
         PlayerPrefs.SetInt(P + "Done", dayDone ? 1 : 0);
@@ -439,6 +508,15 @@ public static class Campaign
         Save();
     }
 
+    /// <summary>Debug: jump to Friday of this season's final week (the Season Final), on the next scene load.</summary>
+    public static void JumpToSeasonFinal()
+    {
+        Load();
+        int finalWeek = (Season - 1) * SeasonWeeks + SeasonWeeks;
+        if (week != finalWeek) StartWeek(finalWeek);
+        JumpTo(Friday);
+    }
+
     /// <summary>Debug: jump to a day of the current week (takes effect on the next scene load, see CampaignRuntime).</summary>
     public static void JumpTo(int day)
     {
@@ -455,7 +533,7 @@ public static class Campaign
     /// <summary>Back to Monday of week 1, rating 50 (Wallet.ResetAll calls this).</summary>
     public static void ResetAll()
     {
-        foreach (var k in new[] { "Week", "Day", "Rating", "WeekStartRating", "WeekStartFollowers", "Done", "Eligible", "TResult", "TScore", "Grades", "Matches", "Ratings", "Sent" })
+        foreach (var k in new[] { "Week", "Day", "Rating", "WeekStartRating", "WeekStartFollowers", "Done", "Eligible", "TResult", "TScore", "Grades", "Matches", "Ratings", "Sent", "Promo" })
             PlayerPrefs.DeleteKey(P + k);
         loaded = false;
         beganFor = int.MinValue;

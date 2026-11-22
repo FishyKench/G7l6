@@ -96,6 +96,11 @@ public class GamingPC : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvider
     public void LaunchGame()
     {
         if (Game != GameState.Closed) return;
+        if (Trust.HomeworkFirst && !Trust.HomeworkDoneToday())
+        {
+            GameHUD.Toast("Mom's rule today: homework first. Hand it in, then you can play.", GameHUD.Warn);
+            return;
+        }
         Game = GameState.Launching;
         LaunchProgress = 0f;
     }
@@ -162,6 +167,7 @@ public class GamingPC : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvider
     {
         var monitor = FindMonitor();
         if (!monitor || !ScreenProjector.FindScreen(monitor, out var renderer, out int slot)) return;
+        currentMonitor = monitor;
 
         // The PC's screen is drawn by a little hidden camera into a texture, and that texture is put on the
         // monitor's own screen (projected across it, so it fills the curved screen edge to edge).
@@ -179,13 +185,7 @@ public class GamingPC : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvider
         screenCamera.orthographic = true;
         screenCamera.nearClipPlane = 0.1f;
         screenCamera.farClipPlane = 10f;
-        var picture = ScreenProjector.Make(renderer, slot, screenTexture, monitor.transform.forward, false, out _);
-        if (picture)
-        {
-            var mats = renderer.sharedMaterials;
-            mats[slot] = picture;
-            renderer.sharedMaterials = mats;
-        }
+        ShowOn(monitor);
 
         var go = new GameObject("PC Screen", typeof(RectTransform));
         go.layer = 5;
@@ -287,13 +287,35 @@ public class GamingPC : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvider
                 MatchTask.Phase.Break => $"{game.Wins} : {game.Losses}   next round soon",
                 _ => game.Wins >= game.roundsToWin ? $"VICTORY  {game.Wins} : {game.Losses}" : $"DEFEAT  {game.Wins} : {game.Losses}",
             };
-            gameTitle.text = MatchTask.IsTournament ? "TOURNAMENT" : "RANKED ARENA";
+            gameTitle.text = MatchTask.IsTournament ? Campaign.TournamentName : "RANKED ARENA";
             float pulse = 0.85f + Mathf.Sin(Time.time * 3f) * 0.15f;
             gameTitle.alpha = pulse;
         }
     }
 
     /// <summary>The main monitor on the desk: the one facing the chair straight on (side monitors are angled).</summary>
+    GameObject currentMonitor;
+
+    /// <summary>Puts the PC's picture on a monitor's screen.</summary>
+    void ShowOn(GameObject monitor)
+    {
+        if (!screenTexture || !monitor || !ScreenProjector.FindScreen(monitor, out var renderer, out int slot)) return;
+        var picture = ScreenProjector.Make(renderer, slot, screenTexture, monitor.transform.forward, false, out _);
+        if (!picture) return;
+        var mats = renderer.sharedMaterials;
+        mats[slot] = picture;
+        renderer.sharedMaterials = mats;
+        currentMonitor = monitor;
+    }
+
+    /// <summary>The desk's monitor was swapped (a setup upgrade in your room): the PC's picture moves to the one now there.</summary>
+    public void RefreshMonitor()
+    {
+        if (!screenTexture) return;
+        var monitor = FindMonitor();
+        if (monitor && monitor != currentMonitor) ShowOn(monitor);
+    }
+
     GameObject FindMonitor()
     {
         var desk = Bounds(gameObject);
@@ -301,9 +323,12 @@ public class GamingPC : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvider
         if (!room) return null;
         GameObject best = null;
         float bestScore = float.MinValue;
-        foreach (Transform t in room)
+        // The room's own monitors, and the ones its progression furniture brings (setup upgrades).
+        foreach (var t in room.GetComponentsInChildren<Transform>())
         {
+            if (t.parent != room && t.parent.name != "Room progression") continue;
             if (!t.name.Contains("Monitor") || !t.gameObject.activeInHierarchy) continue;
+            if (!AnyRendererOn(t.gameObject)) continue;
             var b = Bounds(t.gameObject);
             var c = b.center;
             if (c.x < desk.min.x - 0.2f || c.x > desk.max.x + 0.2f || c.z < desk.min.z - 0.2f || c.z > desk.max.z + 0.2f) continue;
@@ -353,6 +378,12 @@ public class GamingPC : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvider
         t.enableWordWrapping = false;
         UIFactory.Fill(t.rectTransform);
         return t;
+    }
+
+    static bool AnyRendererOn(GameObject go)
+    {
+        foreach (var r in go.GetComponentsInChildren<MeshRenderer>()) if (r.enabled) return true;
+        return false;
     }
 
     static Bounds Bounds(GameObject go)

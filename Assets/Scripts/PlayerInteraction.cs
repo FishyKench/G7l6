@@ -132,6 +132,14 @@ public class PlayerInteraction : MonoBehaviour
 
     public void EnablePlayerControl() => SetPlayerControl(true);
 
+    /// <summary>Starts a main task that isn't something you look at (e.g. the folding minigame). False if one is already running.</summary>
+    public bool BeginMainTask(IMainTask task)
+    {
+        if (InMainTask || task == null) return false;
+        StartMainTask(task);
+        return true;
+    }
+
     /// <summary>For on-screen buttons like "Get up from the PC".</summary>
     public void StopCurrentTaskFromUI() => StopCurrentMainTask();
 

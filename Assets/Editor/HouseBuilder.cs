@@ -144,7 +144,7 @@ public static class HouseBuilder
         R(1, "Walk-in closet", 6, 4, 10, 8, Kind.Service, false);
         R(1, "Corridor", 6, 8, 10, 10, Kind.Hall, false);
         R(1, "Landing", 10, 0, 16, 4, Kind.Hall, true);
-        R(1, "Your bedroom", 16, 0, 20, 6, Kind.Bedroom, true);
+        R(1, "Your bedroom", 16, 0, 24, 6, Kind.Bedroom, true); // pushed out east over a porch (see BuildGamerRoom)
         R(1, "Hall", 10, 4, 12, 10, Kind.Hall, false);
         R(1, "Stairs", 12, 4, 16, 10, Kind.Stairs, false);
         R(1, "Bathroom", 16, 6, 20, 10, Kind.Bath, true);
@@ -2756,5 +2756,584 @@ public static class HouseBuilder
         m.SetFloat("_Glossiness", gloss);
         AssetDatabase.CreateAsset(m, path);
         return m;
+    }
+
+    // ------------------------------------------------------------------ the gamer room: bigger, and furnished for progression
+
+    const int OldEast = 20, NewEast = 24; // plan metres: your room was x16-20, now x16-24 (twice the floor space)
+    const float WallFace = 0.12f;         // walls stand on the grid line; their inside face is about this far in
+
+    /// <summary>
+    /// Menu: G7l6 > Gamer Room (bigger + progression). Two parts, both safe to run again:
+    ///  1. Pushes the outside (east) wall of your bedroom out by 4 m, over a covered porch. Only that wall moves: the things that stood
+    ///     against it move with it, everything else (and the rest of the house) stays where you put it.
+    ///  2. Places the room's progression furniture from the kits (sofa, TV + consoles, trophy cabinet, ring light, pro chair, big PC,
+    ///     fridge, air hockey...) and tags your own desk gear, each with a RoomUnlock key so it only shows once you've earned it.
+    ///     Re-running replaces the placed furniture ("Room progression" group) but never touches your own pieces.
+    /// </summary>
+    [MenuItem("G7l6/Gamer Room (bigger + progression)")]
+    public static void BuildGamerRoom()
+    {
+        if (EditorApplication.isPlaying) { Debug.LogWarning("[Gamer room] Stop Play mode first."); return; }
+        var scene = SceneManager.GetActiveScene();
+        if (scene.path != TargetScene)
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            scene = EditorSceneManager.OpenScene(TargetScene, OpenSceneMode.Single);
+        }
+        var house = scene.GetRootGameObjects().FirstOrDefault(g => g.name == "NewHouse");
+        if (!house) { Debug.LogWarning("[Gamer room] No 'NewHouse' in the scene."); return; }
+
+        missing.Clear(); prefabCache.Clear(); prefabIndex = null; placed = 0; skipped = 0;
+        wallMats.Clear(); floorMats.Clear(); doors.Clear(); mapWalls.Clear();
+        Materials();
+        DefinePlan();
+        root = house.transform;
+        structure = root.Find("Structure");
+        furnitureRoot = root.Find("Furniture");
+        if (!structure || !furnitureRoot) { Debug.LogWarning("[Gamer room] No Structure / Furniture under NewHouse."); return; }
+        foreach (var r in rooms) r.furniture = furnitureRoot.Find($"{FloorName(r.floor)} - {r.name}");
+        var room = Find(1, PlayerRoomName);
+        if (!room.furniture) { Debug.LogWarning("[Gamer room] Couldn't find your room's furniture group."); return; }
+        var layout = house.GetComponent<HouseLayout>();
+
+        Vector3 houseScale = root.localScale, housePos = root.position;
+        Quaternion houseRot = root.rotation;
+        root.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        root.localScale = Vector3.one;
+        Physics.SyncTransforms();
+        var report = new List<string>();
+        var newLights = new List<Light>();
+        try
+        {
+            if (!structure.Find("First floor/Walls/Extension done")) ExtendRoomWalls(room, layout, report, newLights);
+            else report.Add("The room was already bigger - walls left as they are.");
+            CleanOldWallLine(report);
+            SkirtNewWalls(report);
+            FurnishGamerRoom(room, report);
+            if (layout) EditorUtility.SetDirty(layout);
+        }
+        finally
+        {
+            root.localScale = houseScale;
+            root.SetPositionAndRotation(housePos, houseRot);
+            Physics.SyncTransforms();
+        }
+        foreach (var l in newLights) if (l) l.range *= houseScale.x;
+
+        HouseTaskSetup.BakeWalkMap();
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        if (missing.Count > 0) report.Add("Missing prefabs: " + string.Join(", ", missing.Distinct()));
+        string msg = "Gamer room done.\n" + string.Join("\n", report);
+        Debug.Log("[Gamer room] " + msg);
+        Directory.CreateDirectory("Library/G7l6");
+        File.WriteAllText("Library/G7l6/gamer-room.log", msg);
+    }
+
+    static void ExtendRoomWalls(Room room, HouseLayout layout, List<string> report, List<Light> newLights)
+    {
+        float y1 = Storey;
+        bool OnOldWall(Bounds b) => Mathf.Abs(b.center.x - OldEast) < 0.45f && b.size.x < 0.9f
+                                    && b.center.z > -0.4f && b.center.z < 6.4f && b.center.y > y1 + 0.2f && b.center.y < y1 + Storey - 0.1f;
+
+        // 1. Take down the old outside wall (walls, window frames, columns, skirting) on the first floor.
+        int removed = 0;
+        var firstFloor = structure.Find("First floor");
+        if (firstFloor)
+            foreach (Transform group in firstFloor)
+            {
+                if (group.name == "Floors") continue;
+                var kill = new List<GameObject>();
+                foreach (Transform piece in group) if (OnOldWall(Bounds(piece.gameObject))) kill.Add(piece.gameObject);
+                foreach (var k in kill) { Object.DestroyImmediate(k); removed++; }
+            }
+        // Curtains, blinds and rods that hung on that wall's window.
+        var dressing = new List<GameObject>();
+        foreach (var tr in root.GetComponentsInChildren<Transform>(true))
+        {
+            if (tr.IsChildOf(structure)) continue;
+            bool isDressing = WindowDressingNames.Contains(tr.name) || FitToWindow.Contains(tr.name);
+            if (!isDressing) continue;
+            var b = Bounds(tr.gameObject);
+            if (b.size == Vector3.zero) b = new Bounds(tr.position, Vector3.zero);
+            if (Mathf.Abs(b.center.x - OldEast) < 0.6f && b.center.z > 0.6f && b.center.z < 5.4f && b.center.y > y1 && b.center.y < y1 + Storey) dressing.Add(tr.gameObject);
+        }
+        foreach (var d in dressing) if (d) { Object.DestroyImmediate(d); removed++; }
+        report.Add($"Removed {removed} pieces of the old east wall.");
+
+        // 2. Things standing against the old wall move out with it.
+        int moved = 0;
+        foreach (Transform item in room.furniture)
+        {
+            var b = Bounds(item.gameObject);
+            if (b.size == Vector3.zero) continue;
+            if (b.max.x < OldEast - 0.4f || b.center.x < OldEast - 1.3f) continue;
+            if (b.center.z < 0.55f || b.center.z > 5.45f) continue; // in a corner, against the north / south wall: stays
+            item.position += new Vector3(NewEast - OldEast, 0f, 0f);
+            moved++;
+        }
+        report.Add($"Moved {moved} things from the old east wall to the new one.");
+
+        // 3. Floor, ceiling and flat roof of the new part, and the porch underneath.
+        var floors1 = Group(structure, "First floor/Floors");
+        var floors0 = Group(structure, "Ground floor/Floors");
+        var deckMat = FloorMaterial(new Room { name = "Balcony", floor = 2, kind = Kind.Outdoor });
+        for (int x = OldEast; x < NewEast; x += 2)
+        for (int z = 0; z < 6; z += 2)
+        {
+            var tile = Piece("Floor", floors1, new Vector3(x + 1f, y1, z + 1f), 0f);
+            if (tile) { SetLayer(tile, GroundLayer); Paint(tile, FloorMaterial(room)); }
+            var ceiling = Piece("Floor", floors1, new Vector3(x + 1f, y1 + Storey - 0.04f, z + 1f), 0f, flip: true);
+            if (ceiling) { SetLayer(ceiling, 0); Paint(ceiling, ceilingMat); }
+            var cap = Piece("Floor", floors1, new Vector3(x + 1f, y1 + Storey + 0.05f, z + 1f), 0f);
+            if (cap) SetLayer(cap, GroundLayer);
+            var deck = Piece("Floor", floors0, new Vector3(x + 1f, 0f, z + 1f), 0f);
+            if (deck) { SetLayer(deck, GroundLayer); Paint(deck, deckMat); }
+            var under = Piece("Floor", floors0, new Vector3(x + 1f, Storey - 0.045f - 0.04f, z + 1f), 0f, flip: true);
+            if (under) { SetLayer(under, 0); Paint(under, ceilingMat); }
+        }
+
+        // 4. New outside walls: windows at x 20-22 on the north side, x 22-24 on the south side, and in the middle of the east wall.
+        var walls1 = Group(structure, "First floor/Walls");
+        var segs = new List<(Segment s, bool window)>();
+        for (int i = 0; i < 2; i++)
+        {
+            segs.Add((new Segment { floor = 1, alongX = true, line = 0, start = OldEast + i * 2 }, i == 1));
+            segs.Add((new Segment { floor = 1, alongX = true, line = 6, start = OldEast + i * 2 }, i == 0));
+        }
+        for (int i = 0; i < 3; i++) segs.Add((new Segment { floor = 1, alongX = false, line = NewEast, start = i * 2 }, i == 1));
+        foreach (var (s, window) in segs)
+        {
+            Vector3 at = s.Center(y1 - WallSink);
+            if (window)
+            {
+                var w = Piece("Wall Standard (Window 1)", walls1, at, s.Yaw);
+                MeshColliders(w);
+                PaintWallFaces(w, s);
+                Grow(Piece("Window 1", walls1, s.Center(y1), s.Yaw), 1.012f);
+            }
+            else PaintWallFaces(Piece("Wall Standard", walls1, at, s.Yaw), s);
+        }
+        foreach (var (vx, vz) in new[] { (NewEast, 0), (NewEast, 6) })
+        {
+            var col = Piece("Wall Column", walls1, new Vector3(vx, y1 - WallSink, vz), 0f);
+            if (col) col.transform.localScale = new Vector3(1.01f, (Storey - 0.03f) / 3.0363f, 1.01f);
+        }
+        var walls0 = Group(structure, "Ground floor/Walls");
+        foreach (var (vx, vz) in new[] { (NewEast, 0), (NewEast, 6), (22, 0), (22, 6) })
+        {
+            var col = Piece("Wall Column", walls0, new Vector3(vx, -WallSink, vz), 0f);
+            if (col) { col.transform.localScale = new Vector3(1.01f, (Storey - 0.03f) / 3.0363f, 1.01f); SetLayer(col, WallLayer); }
+        }
+        foreach (Transform t in walls1) SetLayer(t.gameObject, WallLayer);
+        new GameObject("Extension done").transform.SetParent(walls1, false);
+
+        // 5. A second ceiling light for the new part.
+        var lights = Group(root, "Lights");
+        float ceilingY = y1 + Storey - 0.09f;
+        var lamp = Spawn("Ceiling Lamp 4", lights) ?? Spawn("Ceiling Lamp 1", lights);
+        if (lamp)
+        {
+            var b = Bounds(lamp);
+            lamp.transform.position += new Vector3(22f, ceilingY, 3f) - new Vector3(b.center.x, b.max.y, b.center.z);
+        }
+        var light = new GameObject("Light - First Your bedroom (new part)").AddComponent<Light>();
+        light.transform.SetParent(lights, true);
+        light.transform.position = new Vector3(22f, ceilingY - 0.6f, 3f);
+        light.type = LightType.Point;
+        light.color = new Color(1f, 0.93f, 0.82f);
+        light.intensity = 0.9f;
+        light.range = 6.5f;
+        light.shadows = LightShadows.None;
+        newLights.Add(light);
+
+        // 6. The map: the room is bigger, the old wall is gone, the new walls are in, and there's a porch.
+        if (layout)
+        {
+            var info = layout.rooms.Find(r => r.floor == 1 && r.name == PlayerRoomName);
+            if (info != null) info.rect = new Rect(room.x0, room.z0, room.x1 - room.x0, room.z1 - room.z0);
+            if (!layout.rooms.Exists(r => r.floor == 0 && r.name == "Porch"))
+                layout.rooms.Add(new HouseLayout.RoomInfo { name = "Porch", floor = 0, rect = new Rect(OldEast, 0, NewEast - OldEast, 6), kind = Kind.Outdoor.ToString() });
+            layout.walls.RemoveAll(w => w.floor == 1 && Mathf.Approximately(w.a.x, OldEast) && Mathf.Approximately(w.b.x, OldEast) && w.a.y >= 0f && w.b.y <= 6f);
+            foreach (var (s, window) in segs) MapWall(s, window ? HouseLayout.WallType.Window : HouseLayout.WallType.Wall);
+            layout.walls.AddRange(mapWalls);
+        }
+
+        var centre = new Vector3(22f, Storey * 0.75f, 3f);
+        foreach (var c in Physics.OverlapBox(centre, new Vector3(1.9f, Storey * 0.7f, 2.8f)))
+            if (!c.transform.IsChildOf(root)) report.Add($"Note: '{c.name}' (outside the house) overlaps the new room/porch - check it.");
+        report.Add("The room is now twice as big (east wall moved out 4 m, over a new porch).");
+    }
+
+    /// <summary>Leftovers of the old east wall inside the room: skirting boards and trims along x = 20, and a corner post at x20 z6.</summary>
+    static void CleanOldWallLine(List<string> report)
+    {
+        var firstFloor = structure.Find("First floor");
+        if (!firstFloor) return;
+        float y1 = Storey;
+        int removed = 0;
+        foreach (Transform group in firstFloor)
+        {
+            if (group.name == "Floors") continue;
+            var kill = new List<GameObject>();
+            foreach (Transform piece in group)
+            {
+                if (piece.name == "Extension done") continue;
+                var b = Bounds(piece.gameObject);
+                if (b.size == Vector3.zero) continue;
+                bool onLine = Mathf.Abs(b.center.x - OldEast) < 0.35f && b.size.x < 0.7f && b.center.y > y1 - 0.25f && b.center.y < y1 + Storey;
+                bool alongIt = onLine && b.center.z > 0.25f && b.center.z < 5.75f;
+                bool post = onLine && piece.name.StartsWith("Wall Column") && Mathf.Abs(b.center.z - 6f) < 0.3f;
+                if (alongIt || post) kill.Add(piece.gameObject);
+            }
+            foreach (var k in kill) { Object.DestroyImmediate(k); removed++; }
+        }
+        if (removed > 0) report.Add($"Cleaned up {removed} leftovers of the old wall (skirting, trims, a corner post).");
+    }
+
+    /// <summary>Skirting boards along the inside of the new walls, like the rest of the house (redone every run).</summary>
+    static void SkirtNewWalls(List<string> report)
+    {
+        var parent = Group(structure, "First floor/Skirting boards");
+        var old = parent.Find("New part");
+        if (old) Object.DestroyImmediate(old.gameObject);
+        var g = new GameObject("New part").transform;
+        g.SetParent(parent, false);
+        var paint = Mat("Skirting", new Color(0.94f, 0.92f, 0.88f), 0.35f);
+        float floorY = Storey;
+        int mask = 1 << WallLayer, pieces = 0;
+        // (start, along, normal into the room, length)
+        var runs = new[]
+        {
+            (new Vector3(OldEast, floorY, 0f), Vector3.right, Vector3.forward, (float)(NewEast - OldEast)),
+            (new Vector3(OldEast, floorY, 6f), Vector3.right, Vector3.back, (float)(NewEast - OldEast)),
+            (new Vector3(NewEast, floorY, 0f), Vector3.forward, Vector3.left, 6f),
+        };
+        foreach (var (start, along, normal, length) in runs)
+            for (float s = 0f; s < length - 0.01f; s += 2f)
+            {
+                float len = Mathf.Min(2f, length - s);
+                Vector3 mid = start + along * (s + len * 0.5f);
+                if (!Physics.Raycast(mid + normal * 0.7f + Vector3.up * 0.08f, -normal, out var hit, 1.2f, mask, QueryTriggerInteraction.Ignore)) continue;
+                Vector3 centre = mid + Vector3.up * 0.058f;
+                if (along == Vector3.right) centre.z = hit.point.z + normal.z * 0.012f; else centre.x = hit.point.x + normal.x * 0.012f;
+                Vector3 size = along == Vector3.right ? new Vector3(len, 0.1f, 0.024f) : new Vector3(0.024f, 0.1f, len);
+                var board = Box("Skirting", g, centre, size, paint, false);
+                board.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                pieces++;
+            }
+        report.Add($"{pieces} skirting boards along the new walls.");
+    }
+
+    /// <summary>Places the progression furniture (each hidden until earned, see RoomUnlock) and tags your own desk gear.</summary>
+    static void FurnishGamerRoom(Room room, List<string> report)
+    {
+        MoveDeskSetup(room, report);
+        ArrangeDeskTop(room, report);
+
+        // Your own pieces: they stay where they are, they just wait until you've earned them.
+        var own = new Dictionary<string, string>
+        {
+            { "Web Cam 1", "webcam" }, { "Mic", "webcam" },
+            { "LED strip N", "gpu" }, { "LED strip S", "gpu" }, { "LED strip E", "gpu" }, { "LED strip W", "gpu" },
+            { "Desk underglow", "gpu" }, { "Desk underglow light", "gpu" }, { "Pink glow (bed)", "gpu" }, { "Purple glow (desk)", "gpu" },
+            { "TV 3 Curved Mounted", "silver" }, { "Cyan glow (TV)", "silver" },
+            // Your gaming setup is the middle tier: before the graphics card a starter kit stands in, the streaming PC adds the pro kit.
+            { "Desk Mechanical 2", "setup1" }, { "Monitor 4 Curved", "setup1" }, { "Monitor 2", "setup1" }, { "PC Keyboard 3", "setup1" },
+            { "Gaming Chair 3", "setup1+!setup2" }, { "PC Case 7", "setup1+!setup2" },
+        };
+        int tagged = 0;
+        foreach (Transform t in room.furniture)
+        {
+            var u = t.GetComponent<RoomUnlock>();
+            if (own.TryGetValue(t.name, out var key))
+            {
+                if (!u) u = t.gameObject.AddComponent<RoomUnlock>();
+                u.key = key;
+                u.lookOnly = t.GetComponent<GamingPC>(); // the PC lives on the desk: only its looks change
+                tagged++;
+            }
+            else if (u && t.name != "Room progression") Object.DestroyImmediate(u); // tagged by an older run (e.g. the floor speaker)
+        }
+        report.Add($"Tagged {tagged} of your own pieces to appear as you earn them.");
+
+        // The placed furniture lives in its own group, rebuilt every run.
+        var old = room.furniture.Find("Room progression");
+        if (old) Object.DestroyImmediate(old.gameObject);
+        var g = new GameObject("Room progression").transform;
+        g.SetParent(room.furniture, false);
+        float floorY = Storey;
+
+        // Copies of the north and south LED strips for the new half (with the RGB kit).
+        foreach (var name in new[] { "LED strip N", "LED strip S" })
+        {
+            var strip = room.furniture.Find(name);
+            if (!strip) continue;
+            var copy = Object.Instantiate(strip.gameObject, g);
+            copy.name = name + " (new part)";
+            copy.transform.position = strip.position + new Vector3(NewEast - OldEast, 0f, 0f);
+            (copy.GetComponent<RoomUnlock>() ?? copy.AddComponent<RoomUnlock>()).key = "gpu";
+        }
+
+        // ---- the gaming corner (new half, north-east): the desk setup in tiers
+        SetupTiers(room, g, report);
+
+        // ---- the old desk wall becomes the TV lounge: your mounted TV and shelf stay; a console cabinet and the sofa face them
+        var tvWall = room.furniture.Find("TV 3 Curved Mounted");
+        float tvX = tvWall ? Bounds(tvWall.gameObject).center.x : 17.3f;
+        var cabinet = Prop(g, "Small Expositor 3", tvX, 6f, 180f, "always", wall: 1);
+        if (cabinet)
+        {
+            var top = Bounds(cabinet);
+            OnTop(g, "Console PolyStation 4", top, -0.18f, 180f, "always");
+            OnTop(g, "Console PolyStation Controller", top, 0.2f, 160f, "always");
+        }
+
+        // ---- the rest of the new half
+        Prop(g, "Rug Tile", 21.3f, 2.45f, 0f, "always", floor: true, collide: false, scale: 1.8f);
+        Prop(g, "Fridge", 23.35f, 0f, 0f, "always", wall: 0, scale: 0.42f);
+        Prop(g, "Wall Light 3", 20.35f, 0f, 0f, "always", wall: 0, height: 2.1f, collide: false);
+
+        // ---- spots for the things built in code at runtime (RoomProgress): +z of each anchor points into the room
+        Anchor(g, "Trophy table anchor", new Vector3(21.0f, floorY, WallFace + 0.01f), 0f, "always");
+        Anchor(g, "Neon sign anchor", new Vector3(NewEast - WallFace - 0.005f, floorY + 2.5f, 4.6f), -90f, "f500");
+        Anchor(g, "Acoustic panels anchor", new Vector3(22.95f, floorY + 1.85f, 6f - WallFace - 0.005f), 180f, "f1000");
+        Anchor(g, "Hex lights anchor", new Vector3(16f + WallFace + 0.005f, floorY + 1.95f, 3.4f), 90f, "diamond");
+        report.Add($"Placed {placed} progression pieces (each appears once earned).");
+    }
+
+    /// <summary>
+    /// The desk top laid out like a real one: keyboard centred under the main monitor, the mouse pad to its right (you sit facing
+    /// the monitor, so your right hand is +x), the mouse on the pad, and the headphones moved clear if the pad would hit them.
+    /// </summary>
+    static void ArrangeDeskTop(Room room, List<string> report)
+    {
+        Transform Own(string n) => room.furniture.Find(n);
+        var monitor = Own("Monitor 4 Curved");
+        var keyboard = Own("PC Keyboard 3");
+        var pad = Own("PC Mouse Pad");
+        var mouse = Own("PC Mouse 1");
+        if (!monitor || !keyboard || !pad || !mouse) { report.Add("Desk top not rearranged: couldn't find the monitor, keyboard, mouse pad or mouse."); return; }
+        var mb = Bounds(monitor.gameObject);
+        var kb = Bounds(keyboard.gameObject);
+        keyboard.position += new Vector3(mb.center.x - kb.center.x, 0f, 0f);
+        kb = Bounds(keyboard.gameObject);
+        var pb = Bounds(pad.gameObject);
+        float padX = kb.max.x + 0.06f + pb.extents.x;
+        pad.position += new Vector3(padX - pb.center.x, 0f, kb.center.z - pb.center.z);
+        pb = Bounds(pad.gameObject);
+        var mo = Bounds(mouse.gameObject);
+        mouse.position += new Vector3(pb.center.x - mo.center.x, 0f, pb.center.z - mo.center.z);
+        var headset = Own("Headset 2");
+        if (headset)
+        {
+            var hb = Bounds(headset.gameObject);
+            if (hb.min.x < pb.max.x + 0.04f && hb.max.z > pb.min.z && hb.min.z < pb.max.z)
+                headset.position += new Vector3(pb.max.x + 0.05f - hb.min.x, 0f, 0f);
+        }
+        Physics.SyncTransforms();
+        report.Add("Desk top laid out: keyboard under the monitor, mouse on its pad to the right.");
+    }
+
+    static readonly string[] DeskSetupNames =
+    {
+        "Desk Mechanical 2", "Monitor 4 Curved", "Monitor 2", "PC Keyboard 3", "PC Mouse 1", "PC Mouse Pad", "Soda Alt 1", "Headset 2",
+        "Mic", "Web Cam 1", "PC Case 7", "Gaming Chair 3", "Rug Tile", "Desk underglow", "Desk underglow light", "VR Headset",
+    };
+
+    /// <summary>
+    /// Once: your whole desk setup (desk, monitors, keyboard, mouse, headset, mic, webcam, PC, chair, desk rug, underglow) moves as one
+    /// piece to the new half's north wall, into the corner - there's a solid wall there and room along the east wall to grow into.
+    /// Nothing is rearranged: everything keeps its place relative to the desk.
+    /// </summary>
+    static void MoveDeskSetup(Room room, List<string> report)
+    {
+        if (room.furniture.Find("Desk setup moved")) return;
+        var desk = room.furniture.Find("Desk Mechanical 2");
+        if (!desk) { report.Add("Desk setup not moved: couldn't find your desk (Desk Mechanical 2)."); return; }
+        var db = Bounds(desk.gameObject);
+        float dx = (NewEast - WallFace - 0.05f) - db.max.x;
+        int moved = 0;
+        foreach (var name in DeskSetupNames)
+        {
+            var t = room.furniture.Find(name);
+            if (!t) continue;
+            t.position += new Vector3(dx, 0f, 0f);
+            moved++;
+        }
+        new GameObject("Desk setup moved").transform.SetParent(room.furniture, false);
+        Physics.SyncTransforms();
+        report.Add($"Moved your desk setup ({moved} pieces) {dx:0.0} m east, into the new half's corner.");
+    }
+
+    /// <summary>
+    /// The desk setup in three tiers (your own pieces are the middle one, see FurnishGamerRoom):
+    ///   starter (before the graphics card): a plain desk, a small monitor, a mini keyboard, a basic PC case and a wooden chair;
+    ///   yours (graphics card): your desk, curved monitor, second monitor, keyboard, PC case 7 and gaming chair;
+    ///   pro (streaming PC): your desk grows into an L along the east wall (a second desk), with a third monitor on it,
+    ///   desk speakers, a big tower and a pro chair.
+    /// Every desk is fitted to your desk's exact top height and depth, so nothing on it floats or sinks.
+    /// </summary>
+    static void SetupTiers(Room room, Transform g, List<string> report)
+    {
+        Transform Own(string n) => room.furniture.Find(n);
+        var desk = Own("Desk Mechanical 2");
+        if (!desk) { report.Add("Setup tiers skipped: couldn't find your desk (Desk Mechanical 2)."); return; }
+        var db = Bounds(desk.gameObject);
+        var pad = Own("PC Mouse Pad");
+        float top = pad ? Bounds(pad.gameObject).min.y : db.max.y;
+        float floorY = Storey;
+        float depth = db.size.z;
+
+        // A desk fitted to: its width along its own left-right, your desk's depth, and your desk's exact top height.
+        GameObject Desk(string prefab, Vector3 centre, float yaw, float width, string key)
+        {
+            var go = Spawn(prefab, g);
+            if (!go) return null;
+            go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+            var b = Bounds(go);
+            bool turned = Mathf.Abs(Mathf.Sin(yaw * Mathf.Deg2Rad)) > 0.7f; // its width runs along z
+            float bw = turned ? b.size.z : b.size.x, bd = turned ? b.size.x : b.size.z;
+            var s = go.transform.localScale;
+            go.transform.localScale = new Vector3(s.x * width / Mathf.Max(0.01f, bw), s.y * (top - floorY) / Mathf.Max(0.01f, b.size.y), s.z * depth / Mathf.Max(0.01f, bd));
+            b = Bounds(go);
+            go.transform.position += new Vector3(centre.x, floorY, centre.z) - new Vector3(b.center.x, b.min.y, b.center.z);
+            FitBox(go);
+            go.AddComponent<RoomUnlock>().key = key;
+            placed++;
+            return go;
+        }
+
+        // Stands in exactly where your piece stands (same turn, same footprint centre).
+        // Stand-ins never block anything: your own (hidden) desk keeps its colliders, so aiming at the desk still opens the PC.
+        GameObject Instead(string prefab, Transform yours, string key)
+        {
+            if (!yours) return null;
+            var go = Spawn(prefab, g);
+            if (!go) return null;
+            go.transform.rotation = yours.rotation;
+            var yb = Bounds(yours.gameObject);
+            MoveBottomCenter(go, Bounds(go), new Vector3(yb.center.x, yb.min.y - Lift, yb.center.z));
+            foreach (var c in go.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+            go.AddComponent<RoomUnlock>().key = key;
+            placed++;
+            return go;
+        }
+
+        GameObject OnDesk(string prefab, Vector3 at, float yaw, string key)
+        {
+            var go = Spawn(prefab, g);
+            if (!go) return null;
+            go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+            MoveBottomCenter(go, Bounds(go), new Vector3(at.x, top - Lift, at.z));
+            go.AddComponent<RoomUnlock>().key = key;
+            placed++;
+            return go;
+        }
+
+        // Starter: same spot as your desk, a plain student desk and basic kit.
+        StudentDesk(g, db, top, Own("PC Case 7"), "!setup1");
+        Instead("Monitor 1", Own("Monitor 4 Curved"), "!setup1");
+        Instead("PC Keyboard 2 Mini", Own("PC Keyboard 3"), "!setup1");
+        Instead("PC Case 1", Own("PC Case 7"), "!setup1");
+        Instead("Office Chair", Own("Gaming Chair 3"), "!setup1");
+
+        // Pro: an L along the east wall, from your desk's corner towards the window (stops before it).
+        float armLength = Mathf.Min(1.15f, db.min.z - 4.0f);
+        var armCentre = new Vector3(db.max.x - depth * 0.5f, 0f, db.min.z - armLength * 0.5f);
+        Desk("Desk Mechanical 3", armCentre, -90f, armLength, "setup2");
+        Instead("PC Case 10", Own("PC Case 7"), "setup2");
+        Instead("Gaming Chair 5", Own("Gaming Chair 3"), "setup2");
+        var chair = Own("Gaming Chair 3");
+        Vector3 seat = chair ? Bounds(chair.gameObject).center : new Vector3(db.center.x, 0f, db.min.z - 0.4f);
+        Vector3 third = new Vector3(armCentre.x + 0.08f, 0f, armCentre.z + 0.05f);
+        float yawThird = Mathf.Atan2(seat.x - third.x, seat.z - third.z) * Mathf.Rad2Deg;
+        OnDesk("Monitor 3", third, yawThird, "setup2");
+        OnDesk("Speaker 3", new Vector3(armCentre.x + 0.12f, 0f, db.min.z - armLength + 0.15f), yawThird, "setup2");
+        OnDesk("Speaker 3", new Vector3(armCentre.x + 0.12f, 0f, db.min.z - 0.15f), yawThird, "setup2");
+
+        // The ring light: on the open side of the desk, by the window, aimed at your chair.
+        var ringAt = new Vector3(db.min.x - 0.35f, 0f, db.center.z - 0.25f);
+        float ringYaw = Mathf.Atan2(seat.x - ringAt.x, seat.z - ringAt.z) * Mathf.Rad2Deg;
+        Prop(g, "Ring Lamp", ringAt.x, ringAt.z, ringYaw, "ringlight", floor: true);
+        report.Add("Desk setup: starter / yours / pro tiers placed (desk, monitor, keyboard, PC and chair change with your upgrades; the pro desk grows into an L).");
+    }
+
+    /// <summary>
+    /// The starter desk, built to your desk's exact footprint and height: a light oak top with a rounded front lip, a white three-drawer
+    /// unit at one end, two slim black legs at the other (where the PC goes underneath), a back panel and a cable tray. No colliders:
+    /// your own desk (hidden) keeps its own, so the PC works the same.
+    /// </summary>
+    static void StudentDesk(Transform g, Bounds desk, float top, Transform pcCase, string key)
+    {
+        var root = new GameObject("Starter desk").transform;
+        root.SetParent(g, false);
+        root.position = new Vector3(desk.center.x, Storey, desk.center.z);
+        var oak = Mat("Starter desk oak", new Color(0.82f, 0.64f, 0.44f), 0.25f);
+        var white = Mat("Starter desk white", new Color(0.93f, 0.93f, 0.91f), 0.3f);
+        var black = Mat("Starter desk black", new Color(0.1f, 0.1f, 0.11f), 0.4f);
+        float W = desk.size.x, D = desk.size.z, H = top - Storey;
+        // The PC sits under one end: legs there, the drawers at the other.
+        bool pcLeft = !pcCase || Bounds(pcCase.gameObject).center.x < desk.center.x;
+        float drawersX = (pcLeft ? 1f : -1f) * (W * 0.5f - 0.24f), legsX = (pcLeft ? -1f : 1f) * (W * 0.5f - 0.04f);
+        float front = -D * 0.5f; // the desk faces -z (towards the room)
+        void Part(string n, Vector3 c, Vector3 s, Material m) => Box(n, root, root.position + c, s, m, false);
+        Part("Top", new Vector3(0f, H - 0.016f, 0f), new Vector3(W, 0.032f, D), oak);
+        Part("Front lip", new Vector3(0f, H - 0.03f, front + 0.009f), new Vector3(W + 0.004f, 0.05f, 0.024f), oak);
+        Part("Drawer unit", new Vector3(drawersX, (H - 0.035f) * 0.5f, 0.02f), new Vector3(0.44f, H - 0.035f, D - 0.06f), white);
+        for (int i = 0; i < 3; i++)
+        {
+            float h = (H - 0.08f) / 3f, y = 0.03f + h * (i + 0.5f);
+            Part("Drawer", new Vector3(drawersX, y, front + 0.044f), new Vector3(0.4f, h - 0.02f, 0.012f), white);
+            Part("Handle", new Vector3(drawersX, y + h * 0.25f, front + 0.032f), new Vector3(0.14f, 0.014f, 0.014f), black);
+        }
+        foreach (float z in new[] { front + 0.05f, D * 0.5f - 0.05f })
+            Part("Leg", new Vector3(legsX, (H - 0.032f) * 0.5f, z), new Vector3(0.04f, H - 0.032f, 0.04f), black);
+        Part("Foot bar", new Vector3(legsX, 0.04f, 0f), new Vector3(0.035f, 0.03f, D - 0.1f), black);
+        Part("Back panel", new Vector3(0f, H * 0.6f, D * 0.5f - 0.02f), new Vector3(W - 0.1f, H * 0.5f, 0.015f), white);
+        Part("Cable tray", new Vector3(-drawersX * 0.3f, H - 0.09f, D * 0.5f - 0.1f), new Vector3(W * 0.45f, 0.02f, 0.12f), black);
+        root.gameObject.AddComponent<RoomUnlock>().key = key;
+        placed++;
+    }
+
+    /// <summary>A kit piece at plan (x, z), turned 'yaw'; floor: standing on the floor; wall 0 S / 1 N / 2 W / 3 E: its back against that wall.</summary>
+    static GameObject Prop(Transform parent, string prefab, float x, float z, float yaw, string key, bool floor = false, int wall = -1,
+        float height = 0f, float scale = 1f, bool collide = true)
+    {
+        var go = Spawn(prefab, parent);
+        if (!go) return null;
+        go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        if (!Mathf.Approximately(scale, 1f)) go.transform.localScale *= scale;
+        var b = Bounds(go);
+        var target = new Vector3(x, Storey + height, z);
+        if (wall == 0) target.z = 0f + WallFace + b.extents.z + 0.01f;
+        if (wall == 1) target.z = 6f - WallFace - b.extents.z - 0.01f;
+        if (wall == 2) target.x = 16f + WallFace + b.extents.x + 0.01f;
+        if (wall == 3) target.x = NewEast - WallFace - b.extents.x - 0.01f;
+        MoveBottomCenter(go, b, target);
+        if (collide) FitBox(go);
+        go.AddComponent<RoomUnlock>().key = key;
+        placed++;
+        return go;
+    }
+
+    static void OnTop(Transform parent, string prefab, Bounds under, float offset, float yaw, string key)
+    {
+        var go = Spawn(prefab, parent);
+        if (!go) return;
+        go.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        var b = Bounds(go);
+        MoveBottomCenter(go, b, new Vector3(under.center.x + offset * under.extents.x * 2f, under.max.y, under.center.z));
+        go.AddComponent<RoomUnlock>().key = key;
+        placed++;
+    }
+
+    static void Anchor(Transform parent, string name, Vector3 at, float yaw, string key)
+    {
+        var a = new GameObject(name).transform;
+        a.SetParent(parent, true);
+        a.SetPositionAndRotation(at, Quaternion.Euler(0f, yaw, 0f));
+        a.gameObject.AddComponent<RoomUnlock>().key = key;
     }
 }

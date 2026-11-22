@@ -127,7 +127,7 @@ public class CampaignUI : MonoBehaviour
         Txt(intro, "MOM HOME", 14, Soft, TextAlignmentOptions.Center, 40 + colW * 2, 204, colW, 18);
         Txt(intro, Campaign.HourText(rules.momHomeHour), 28, rules.momHomeHour < 17.99f ? Red : Ink, TextAlignmentOptions.Center, 40 + colW * 2, 224, colW, 38, true);
         if (rules.tournament)
-            Txt(intro, "TOURNAMENT " + Campaign.HourText(rules.matchStartHour), 16, Orange, TextAlignmentOptions.Center, 40 + colW * 2 - 30, 258, colW + 60, 20, true);
+            Txt(intro, Campaign.TournamentName + " " + Campaign.HourText(rules.matchStartHour), 16, Orange, TextAlignmentOptions.Center, 40 + colW * 2 - 30, 258, colW + 60, 20, true);
 
         StartCoroutine(nameof(IntroRoutine));
     }
@@ -169,6 +169,7 @@ public class CampaignUI : MonoBehaviour
     public void ShowSummary()
     {
         if (SummaryOpen) return;
+        if (Campaign.FinalWeek) { ShowEnding(); return; }
         EnsureCanvas();
         SummaryOpen = true;
         summaryOpenedAt = Time.unscaledTime;
@@ -255,10 +256,13 @@ public class CampaignUI : MonoBehaviour
         // --- next week
         float noteY = 624f;
         Box(card, new Color(0.13f, 0.13f, 0.16f, 0.15f), 70, noteY, W - 140, 2);
-        var next = Txt(card, $"WEEK {week + 1} IS TOUGHER", 22, Ink, TextAlignmentOptions.Center, 70, noteY + 14, W - 140, 30, true);
+        bool finalNext = Campaign.IsFinalWeek(week + 1);
+        var next = Txt(card, finalNext ? $"WEEK {week + 1}: THE SEASON FINAL" : $"WEEK {week + 1} IS TOUGHER", 22, Ink, TextAlignmentOptions.Center, 70, noteY + 14, W - 140, 30, true);
         next.richText = true;
-        Txt(card, $"More chaos, a stricter Mom and sharper bots. The tournament will need {Campaign.RankName(Campaign.GateRankFor(week + 1))}. " +
-                  "Your money, gear, rank and followers carry over.", 20, Soft, TextAlignmentOptions.Top, 120, noteY + 50, W - 240, 62, false, true);
+        Txt(card, finalNext
+                ? $"The last week of the season. Friday is the Season Final (1st place $500): you need {Campaign.RankName(Campaign.GateRankFor(week + 1))}, and Mom's trust at {Trust.FinalNeeds}+ or she won't let you play."
+                : $"More chaos, a stricter Mom and sharper bots. The tournament will need {Campaign.RankName(Campaign.GateRankFor(week + 1))}. Your money, gear, rank and followers carry over.",
+            20, Soft, TextAlignmentOptions.Top, 120, noteY + 50, W - 240, 62, false, true);
 
         // --- buttons
         const float bw = 380f, bh = 76f;
@@ -270,6 +274,58 @@ public class CampaignUI : MonoBehaviour
         Txt(quitButton, "QUIT GAME", 28, Ink, TextAlignmentOptions.Center, 0, 24, 300, 40, true);
         Txt(card, "Click a button  -  or press Enter to start the next week", 16, Soft, TextAlignmentOptions.Center, 60, 862, W - 120, 22);
 
+        StartCoroutine(SummaryIn());
+    }
+
+    /// <summary>The end of the season (after the Season Final's report card): which ending you got, and a new season.</summary>
+    public void ShowEnding()
+    {
+        EnsureCanvas();
+        SummaryOpen = true;
+        summaryOpenedAt = Time.unscaledTime;
+        if (intro) { Destroy(intro.gameObject); intro = null; }
+        var ending = Story.EndingNow();
+
+        var dim = UIFactory.Panel("Ending Dim", canvasRoot, new Color(0f, 0f, 0f, 0.7f));
+        UIFactory.Fill(dim.rectTransform);
+        const float W = 1080f, H = 820f;
+        var card = Note("Season Ending", new Vector2(W, H), Vector2.zero, -0.6f, out summaryGroup);
+        dim.transform.SetAsFirstSibling();
+
+        Txt(card, $"SEASON {Campaign.Season}  -  THE END", 20, Soft, TextAlignmentOptions.Center, 60, 46, W - 120, 28, true).characterSpacing = 6f;
+        var title = Txt(card, ending.title, 72, Ink, TextAlignmentOptions.Center, 60, 78, W - 120, 86, true);
+        title.enableAutoSizing = true; title.fontSizeMin = 44; title.fontSizeMax = 72;
+        var underline = UIFactory.Panel("Underline", card, Red);
+        underline.sprite = HudArt.Get("underline_0");
+        UIFactory.Place(underline.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0, -170), new Vector2(420, 20));
+        Txt(card, ending.tagline, 26, Orange, TextAlignmentOptions.Center, 60, 186, W - 120, 36, true);
+        var story = Txt(card, ending.story, 23, Ink, TextAlignmentOptions.Top, 120, 238, W - 240, 150, false, true);
+        story.enableAutoSizing = true; story.fontSizeMin = 17; story.fontSizeMax = 23;
+
+        // The season in numbers
+        float top = 410f, colW = (W - 200f) / 2f;
+        Box(card, new Color(0.13f, 0.13f, 0.16f, 0.22f), 100, top - 8, W - 200, 2);
+        Row(card, Campaign.FinalWeek ? "Season Final" : "Tournament", TournamentText(out Color tc), tc, 100, top + 6, colW - 20, true, 0.45f);
+        var rank = Campaign.CurrentRank;
+        string rankHex = ColorUtility.ToHtmlStringRGB(Darken(Campaign.RankColour(rank)));
+        Row(card, "Rank", $"<color=#{rankHex}>{Campaign.RankName(rank)}</color>  {Campaign.Rating} RP", Ink, 100, top + 46, colW - 20, true, 0.3f);
+        Row(card, "Followers", ClipHub.Followers.ToString("N0"), Ink, 100, top + 86, colW - 20, false, 0.45f);
+        Row(card, "Mom", $"{Trust.Mood}  ({Trust.Value}/100)", Trust.Colour, 100 + colW + 20, top + 6, colW - 20, true, 0.25f);
+        Row(card, "Wallet", Wallet.MoneyText, Green, 100 + colW + 20, top + 46, colW - 20, true, 0.45f);
+        var nem = Rivals.Nemesis;
+        Row(card, "Nemesis", nem != null ? nem.name : "none", nem != null ? Red : Soft, 100 + colW + 20, top + 86, colW - 20, false, 0.4f);
+        Box(card, new Color(0.13f, 0.13f, 0.16f, 0.22f), 100, top + 132, W - 200, 2);
+        Txt(card, $"Season {Campaign.Season + 1}: your money, gear, rank, followers and Mom's trust carry over - and so do your rivals.", 18, Soft,
+            TextAlignmentOptions.Center, 100, top + 146, W - 200, 50, false, true);
+
+        const float bw = 400f, bh = 76f;
+        startBg = Box(card, Green, W / 2f - bw - 18f, 640, bw, bh, true);
+        startButton = startBg.rectTransform;
+        Txt(startButton, $"START SEASON {Campaign.Season + 1}", 32, Color.white, TextAlignmentOptions.Center, 0, 22, bw, 40, true);
+        quitBg = Box(card, new Color(0.13f, 0.13f, 0.16f, 0.14f), W / 2f + 18f, 640, 300, bh, true);
+        quitButton = quitBg.rectTransform;
+        Txt(quitButton, "QUIT GAME", 28, Ink, TextAlignmentOptions.Center, 0, 24, 300, 40, true);
+        Txt(card, "Click a button  -  or press Enter to start the next season", 16, Soft, TextAlignmentOptions.Center, 60, 748, W - 120, 22);
         StartCoroutine(SummaryIn());
     }
 

@@ -124,6 +124,9 @@ public static class Wallet
         ClipHub.ResetAll();
         LiveStream.ResetAll();
         Campaign.ResetAll();
+        Trust.ResetAll();
+        Rivals.ResetAll();
+        Trophies.ResetAll();
         Changed?.Invoke();
     }
 

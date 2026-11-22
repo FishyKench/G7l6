@@ -42,6 +42,8 @@ public class GameManager : MonoBehaviour
         if (!FindObjectOfType<ShopRuntime>()) gameObject.AddComponent<ShopRuntime>(); // ShopNest deliveries + gadgets
         if (!FindObjectOfType<ClipHubRuntime>()) gameObject.AddComponent<ClipHubRuntime>(); // ClipHub views / followers / earnings
         if (!FindObjectOfType<LiveStreamRuntime>()) gameObject.AddComponent<LiveStreamRuntime>(); // LiveLoop streaming: viewers, chat, tips
+        if (!FindObjectOfType<RoomProgress>()) gameObject.AddComponent<RoomProgress>(); // trophies + bought gear in your room
+        if (!FindObjectOfType<HouseSenses>()) gameObject.AddComponent<HouseSenses>(); // hear the house from inside VR (muffled cues + sticky notes)
     }
 
     void Start()

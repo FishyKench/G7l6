@@ -83,6 +83,13 @@ public class VRHeadset : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvide
     {
         // The game was closed on the PC while you were in it: you're dropped out.
         if (worn && inGame && pc && pc.Game != GamingPC.GameState.Running) TakeOff("The game closed.");
+        // Wearing it while the game was still launching: the moment it's up, you're in (no need to take it off and on again).
+        else if (worn && !inGame && pc && pc.Game == GamingPC.GameState.Running && match)
+        {
+            HideMirror();
+            inGame = true;
+            match.StartMainTask();
+        }
         if (mirror && mirror.activeSelf) AnimateMirror();
     }
 

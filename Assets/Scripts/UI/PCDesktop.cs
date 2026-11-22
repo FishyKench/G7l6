@@ -438,11 +438,13 @@ public partial class PCDesktop : MonoBehaviour
         rankName.color = col;
         rankPoints.text = Campaign.Rating + " RP";
         rankFill.anchorMax = new Vector2(Mathf.Max(0.02f, Campaign.ProgressInRank), 1f);
-        rankNext.text = rank == Campaign.Rank.Champion ? "Top rank reached" : $"{Campaign.PointsToNextRank} RP to {Campaign.RankName(rank + 1)}";
+        rankNext.text = Campaign.PromoPending ? $"PROMOTION MATCH: win your next match to reach {Campaign.RankName(Campaign.PromoRank)}"
+                      : rank == Campaign.Rank.Champion ? "Top rank reached" : $"{Campaign.PointsToNextRank} RP to {Campaign.RankName(rank + 1)}";
 
         string gate = Campaign.RankName(Campaign.GateRank);
-        if (Campaign.TournamentToday) { rankGate.text = $"TOURNAMENT TODAY at {Campaign.HourText(Campaign.Today.matchStartHour)}"; rankGate.color = new Color32(255, 200, 64, 255); }
+        if (Campaign.TournamentToday) { rankGate.text = $"{Campaign.TournamentName} TODAY at {Campaign.HourText(Campaign.Today.matchStartHour)}"; rankGate.color = new Color32(255, 200, 64, 255); }
         else if (Campaign.IsFriday) { rankGate.text = $"Tournament needed {gate}  -  you missed it"; rankGate.color = new Color32(255, 120, 130, 255); }
+        else if (Campaign.ReachedGate && !Trust.CanGoToTournament) { rankGate.text = $"Qualified - but Mom must trust you ({Trust.Value}/{Trust.TournamentNeedsNow})"; rankGate.color = new Color32(255, 170, 80, 255); }
         else if (Campaign.ReachedGate) { rankGate.text = $"Friday tournament: qualified ({gate}+)"; rankGate.color = new Color32(110, 230, 140, 255); }
         else { rankGate.text = $"Friday tournament needs {gate}  -  {Campaign.PointsToGate} RP to go"; rankGate.color = new Color32(255, 120, 200, 255); }
     }
@@ -452,7 +454,7 @@ public partial class PCDesktop : MonoBehaviour
         if (gameWin == null || !gameWin.open) return;
         var game = pc.Match;
         bool tournament = MatchTask.IsTournament;
-        launcherTitle.text = tournament ? "<b>TOURNAMENT</b>" : "<b>RANKED ARENA</b>";
+        launcherTitle.text = tournament ? $"<b>{Campaign.TournamentName}</b>" : "<b>RANKED ARENA</b>";
         launcherSub.text = tournament ? $"Best of 5  -  1st ${Campaign.Prize1st}  -  2nd ${Campaign.Prize2nd}  -  VR" : "8v8 Domination  -  capture A, B, C  -  VR";
         UpdateRankCard();
         launcherStatus.text = !game ? "" : game.State switch
@@ -465,10 +467,11 @@ public partial class PCDesktop : MonoBehaviour
         switch (pc.Game)
         {
             case GamingPC.GameState.Closed:
-                playText.text = "PLAY";
-                playBg.color = new Color32(90, 240, 220, 255);
+                bool locked = Trust.HomeworkFirst && !Trust.HomeworkDoneToday();
+                playText.text = locked ? "LOCKED" : "PLAY";
+                playBg.color = locked ? new Color32(150, 150, 160, 255) : new Color32(90, 240, 220, 255);
                 launchFill.anchorMax = new Vector2(0f, 1f);
-                launcherHint.text = "";
+                launcherHint.text = locked ? $"Mom's rule today: homework first (trust {Trust.Value}/100)" : "";
                 quitButton.gameObject.SetActive(false);
                 break;
             case GamingPC.GameState.Launching:

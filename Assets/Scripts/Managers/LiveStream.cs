@@ -94,7 +94,7 @@ public static class LiveStream
     {
         get
         {
-            if (!Wallet.PcBannedTomorrow) return false;
+            if (!Wallet.PcBannedTomorrow && Trust.CanStream) return false;
             var day = DayManager.Instance;
             return !day || day.State != DayManager.Phase.Report;
         }
@@ -103,7 +103,9 @@ public static class LiveStream
     /// <summary>Null when you can go live, otherwise the reason (shown in LiveLoop and as a toast).</summary>
     public static string CannotGoLive()
     {
-        if (BannedToday) return "Grounded - no streaming today. Mom took your streaming privileges after the F on your report card.";
+        if (BannedToday) return Wallet.PcBannedTomorrow
+            ? "Grounded - no streaming today. Mom took your streaming privileges after the F on your report card."
+            : $"Mom says no streaming until she trusts you again (trust {Trust.Value}/{Trust.StreamNeeds}). Good report cards win it back.";
         if (!HasCamera)
         {
             switch (Shop.StateOf(Shop.Webcam))

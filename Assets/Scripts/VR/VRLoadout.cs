@@ -3,6 +3,22 @@ using UnityEngine;
 /// <summary>The classes in the VR arena. You pick yours with 1-4 (it applies when you spawn); every bot has one too.</summary>
 public enum VRRole { Assault, SMG, Sniper, LMG }
 
+/// <summary>Classes unlock with your Ranked rank: Assault and SMG from the start, LMG at Silver, Sniper at Gold.</summary>
+public static class VRUnlocks
+{
+    public static Campaign.Rank Needs(VRRole role) => role == VRRole.LMG ? Campaign.Rank.Silver : role == VRRole.Sniper ? Campaign.Rank.Gold : Campaign.Rank.Bronze;
+    public static bool Has(VRRole role) => Campaign.CurrentRank >= Needs(role);
+    public static string LockedText(VRRole role) => $"{VRLoadout.For(role).name} unlocks at {Campaign.RankName(Needs(role))}";
+
+    /// <summary>The classes a new rank opens up (for the "unlocked!" message).</summary>
+    public static string NewAt(Campaign.Rank rank)
+    {
+        var names = new System.Collections.Generic.List<string>();
+        foreach (var r in VRLoadout.All) if (Needs(r) == rank && rank != Campaign.Rank.Bronze) names.Add(VRLoadout.For(r).name);
+        return string.Join(" + ", names);
+    }
+}
+
 /// <summary>
 /// What a class carries and how its gun behaves:
 ///   ASSAULT - all-rounder rifle, a frag and a flash.

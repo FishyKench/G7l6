@@ -72,6 +72,16 @@ public class DayManager : MonoBehaviour
     public int ChoresDone { get; private set; }
     public int ChoresFailed { get; private set; }
     public readonly List<string> failedNames = new List<string>();
+    /// <summary>Chores done really well today (perfect dinner, neatly folded laundry): bonus points on the report card.</summary>
+    public readonly List<(string what, int points)> quality = new List<(string, int)>();
+
+    /// <summary>A chore was done really well: Mom adds points on the report card.</summary>
+    public static void AddQuality(string what, int points)
+    {
+        var d = Instance;
+        if (!d || d.State == Phase.Report) return;
+        d.quality.Add((what, points));
+    }
 
     float elapsed;
     DayHud hud;
@@ -90,7 +100,14 @@ public class DayManager : MonoBehaviour
         var rules = Campaign.Today;
         endHour = rules.momHomeHour;
         if (rules.realMinutes > 0f) realMinutes = rules.realMinutes;
-        if (endHour < 17.99f)
+        if (Trust.LateCurfew)
+        {
+            // Mom trusts you: she stays out half an hour longer (the day gets longer in real time too).
+            float before = endHour - startHour;
+            endHour += 0.5f;
+            realMinutes *= (endHour - startHour) / Mathf.Max(0.5f, before);
+        }
+        if (Mathf.Abs(endHour - 18f) > 0.01f)
         {
             // Mom's "on my way" texts move with her arrival.
             float shift = 18f - endHour;
@@ -318,6 +335,8 @@ public class DayManager : MonoBehaviour
         public string homework;
         public int homeworkPoints;
         public int done, failed, choreBonus, failPenalty;
+        /// <summary>Bonus for chores done really well (capped at 12) and how many.</summary>
+        public int qualityPoints, qualityCount;
         public List<Finding> found;
         public int stress, stressPenalty;
         public int score;
@@ -328,6 +347,8 @@ public class DayManager : MonoBehaviour
         public bool matchWon;
         /// <summary>Dollars Mom pays for this grade (A $25, B $15, C $8, D $3, F $0).</summary>
         public int allowance;
+        /// <summary>Mom's Trust after this day, and how much this report card moved it.</summary>
+        public int trust, trustDelta;
         /// <summary>"Ranked match" or "Tournament"; and the right-hand text ("+85 RP" or "1st place - $150").</summary>
         public string matchLabel = "Ranked match", matchExtra;
     }
@@ -375,6 +396,9 @@ public class DayManager : MonoBehaviour
         r.done = ChoresDone;
         r.failed = ChoresFailed;
         r.choreBonus = Mathf.Min(15, ChoresDone * 3);
+        foreach (var q in quality) r.qualityPoints += q.points;
+        r.qualityPoints = Mathf.Min(12, r.qualityPoints);
+        r.qualityCount = quality.Count;
         r.failPenalty = ChoresFailed * 6;
         var stress = StressManager.Instance;
         r.stress = stress ? Mathf.RoundToInt(stress.Normalized * 100f) : 0;
@@ -382,7 +406,7 @@ public class DayManager : MonoBehaviour
 
         int found = 0;
         foreach (var f in r.found) found += f.points;
-        r.score = Mathf.Clamp(100 + r.choreBonus - r.failPenalty - found - r.homeworkPoints - r.stressPenalty, 0, 115);
+        r.score = Mathf.Clamp(100 + r.choreBonus + r.qualityPoints - r.failPenalty - found - r.homeworkPoints - r.stressPenalty, 0, 115);
         if (r.meltdown) r.score = Mathf.Min(r.score, 40);
 
         (r.grade, r.momSays) =
@@ -397,6 +421,9 @@ public class DayManager : MonoBehaviour
         r.allowance = AllowanceFor(r.grade);
         if (r.allowance > 0) Wallet.Earn(r.allowance, $"Allowance - Mom's report card ({r.grade})", Wallet.Category.Allowance);
         Wallet.PcBannedTomorrow = r.grade == "F"; // no streaming the next day (LiveStream.BannedToday)
+        bool homeworkDone = !homework || (!homework.IsActive && homework.LastSucceeded);
+        r.trustDelta = Trust.EndOfDay(r.grade, ChoresFailed, homeworkDone);
+        r.trust = Trust.Value;
 
         bool tournament = Campaign.TournamentToday;
         Campaign.OnDayEnded(r.grade, r.match, match ? match.Wins : 0, match ? match.Losses : 0, match && match.State != MatchTask.Phase.Waiting);
@@ -406,6 +433,7 @@ public class DayManager : MonoBehaviour
             var outcome = Campaign.TournamentOutcome;
             r.matchExtra = tournament
                 ? (outcome == Campaign.TournamentResult.First ? $"1st - ${Campaign.Prize1st}" : outcome == Campaign.TournamentResult.Second ? $"2nd - ${Campaign.Prize2nd}" : "no prize")
+                : !string.IsNullOrEmpty(Campaign.LastPromoText) ? Campaign.LastPromoText
                 : $"{(r.rankPoints >= 0 ? "+" : "")}{r.rankPoints} RP";
         }
         return r;

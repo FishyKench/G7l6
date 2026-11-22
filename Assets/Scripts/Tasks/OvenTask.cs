@@ -2,8 +2,9 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Cook dinner:  turn the oven on  ->  it cooks for cookTime  ->  turn it off.
-/// If it stays on until catchFireAt (seconds after turning it on), dinner burns and a fire starts.
+/// Cook dinner:  turn the oven on  ->  it cooks for cookTime  ->  take it out.
+/// Timing is the skill: right after it's ready dinner is GOLDEN (Mom loves it: bonus on the report card), then it gets CRISPY
+/// (still fine), and if it stays in until catchFireAt (seconds after turning it on) it burns and a fire starts.
 /// </summary>
 public class OvenTask : TaskBase, IInteractable, IPromptProvider
 {
@@ -23,8 +24,12 @@ public class OvenTask : TaskBase, IInteractable, IPromptProvider
     public Color glowColor = new Color(1f, 0.42f, 0.1f);
     public float glowStrength = 1.2f;
 
+    [Tooltip("Share of the ready-to-fire time that counts as golden (perfect).")]
+    public float goldenShare = 0.45f;
+
     Phase phase;
-    float cookTimer, nextWarningBeep;
+    float cookTimer, nextWarningBeep, readyFor, readyAt;
+    bool Golden => phase == Phase.Ready && Time.time - readyAt <= readyFor * goldenShare;
     bool warned;
     readonly List<Material> glowMaterials = new List<Material>();
     readonly List<Color> originalEmission = new List<Color>();
@@ -68,7 +73,7 @@ public class OvenTask : TaskBase, IInteractable, IPromptProvider
             switch (phase)
             {
                 case Phase.Cooking: return $"Cooking... {Seconds(cookTime - cookTimer)}";
-                case Phase.Ready: return "Ready! Turn the oven off before it burns";
+                case Phase.Ready: return Golden ? "GOLDEN! Take dinner out now" : "Getting crispy - take it out before it burns!";
                 default: return "Turn on the oven";
             }
         }
@@ -83,7 +88,7 @@ public class OvenTask : TaskBase, IInteractable, IPromptProvider
             switch (phase)
             {
                 case Phase.Cooking: return $"Cooking... {Seconds(cookTime - cookTimer)}";
-                case Phase.Ready: return "Turn off oven";
+                case Phase.Ready: return Golden ? "Take dinner out - golden brown!" : "Take dinner out - getting crispy!";
                 default: return "Turn on oven";
             }
         }
@@ -107,7 +112,12 @@ public class OvenTask : TaskBase, IInteractable, IPromptProvider
                 GameHUD.Toast($"Still cooking - {Seconds(cookTime - cookTimer)} left", GameHUD.Info);
                 break;
             case Phase.Ready:
-                Complete("Dinner's ready!");
+                if (Golden)
+                {
+                    DayManager.AddQuality("Perfect golden dinner", 4);
+                    Complete("Perfect - golden brown! Mom will love it.");
+                }
+                else Complete("Dinner's done... a little crispy.");
                 break;
         }
     }
@@ -133,9 +143,11 @@ public class OvenTask : TaskBase, IInteractable, IPromptProvider
                 phase = Phase.Ready;
                 bool timer = Shop.IsInstalled(Shop.OvenTimer);
                 // Smart oven timer: 50% longer before it catches fire (and it beeps before that happens).
-                StartDeadline(Mathf.Max(1f, catchFireAt - cookTime) * (timer ? 1.5f : 1f));
+                readyFor = Mathf.Max(1f, catchFireAt - cookTime) * (timer ? 1.5f : 1f);
+                readyAt = Time.time;
+                StartDeadline(readyFor);
                 warned = false;
-                GameHUD.Toast(timer ? "Smart timer: dinner is ready - turn off the oven!" : "Dinner is ready - turn off the oven!", GameHUD.Warn);
+                GameHUD.Toast(timer ? "Smart timer: dinner is golden - take it out!" : "Dinner is golden - take it out now for a perfect one!", GameHUD.Warn);
                 if (timer) Fx.Play(Fx.Beep, transform.position, 0.8f, 1f);
             }
         }

@@ -48,6 +48,8 @@ public class VRBot : VRFighter
     public float HuntUntil { get; set; }
     /// <summary>What it's doing, for debugging and team chat.</summary>
     public string Doing { get; private set; } = "";
+    /// <summary>Shown after the name on the tag (e.g. "  RIVAL").</summary>
+    public string title = "";
 
     const float ViewAngle = 75f, ViewDistance = 75f, Hearing = 38f;
     const float CombatSpeed = 4f, CrouchSpeed = 2f, SlideSpeed = 10.5f;
@@ -203,7 +205,7 @@ public class VRBot : VRFighter
         }
         if (nameText)
         {
-            nameText.text = $"{fighterName}\n<size=60%>{l.name}</size>";
+            nameText.text = $"{fighterName}{title}\n<size=60%>{l.name}</size>";
             nameText.rectTransform.sizeDelta = new Vector2(4f, 1.2f);
         }
     }

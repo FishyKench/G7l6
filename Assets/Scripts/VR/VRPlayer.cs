@@ -229,6 +229,11 @@ public class VRPlayer : VRFighter
     /// <summary>Pick your class (applies when you spawn - straight away if you only just spawned).</summary>
     public void ChooseRole(VRRole role)
     {
+        if (!VRUnlocks.Has(role))
+        {
+            if (VRArena.Instance && VRArena.Instance.Hud) VRArena.Instance.Hud.Pop(VRUnlocks.LockedText(role).ToUpperInvariant());
+            return;
+        }
         NextRole = role;
         if (Alive && Time.time - SpawnedAt < 4f && Role != role) { ApplyLoadout(); Ammo = magazine; reloadLeft = 0f; }
     }
@@ -321,7 +326,7 @@ public class VRPlayer : VRFighter
         {
             if (controlled)
                 for (int i = 0; i < VRLoadout.All.Length; i++)
-                    if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i)) NextRole = VRLoadout.All[i];
+                    if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i)) ChooseRole(VRLoadout.All[i]);
             deathTilt = Mathf.MoveTowards(deathTilt, 1f, dt * 2f);
             head.localPosition = new Vector3(0f, Mathf.Lerp(eyeHeight, 0.4f, deathTilt), 0f);
             Cam.transform.localRotation = Quaternion.Euler(pitch, 0f, 35f * deathTilt);

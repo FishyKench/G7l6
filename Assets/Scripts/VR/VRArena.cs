@@ -29,6 +29,8 @@ public class VRArena : MonoBehaviour
         public float scoreLimit;
         public float enemySpread, enemyFireRate, enemyDamage, enemyReaction, enemyAimSettle;
         public float allySpread, allyFireRate, allyDamage, allyReaction;
+        /// <summary>Ranked / tournament: your rivals join the enemy team (see Rivals).</summary>
+        public bool rivals, tournament;
     }
 
     public Mode State { get; private set; }
@@ -167,6 +169,7 @@ public class VRArena : MonoBehaviour
     /// <summary>You picked a class on the cards: spawn with it and go.</summary>
     public void ConfirmClass(VRRole role)
     {
+        if (!VRUnlocks.Has(role)) { if (Hud) Hud.Pop(VRUnlocks.LockedText(role).ToUpperInvariant()); return; }
         Player.ChooseRole(role);
         if (State != Mode.Briefing) return;
         var s = Spawn(spawnsA, 0, -1);
@@ -205,9 +208,21 @@ public class VRArena : MonoBehaviour
                 friend ? s.enemyReaction : s.allyReaction,
                 friend ? s.enemyAimSettle : s.enemyAimSettle * 1.2f);
         }
+        var rivals = s.rivals ? Rivals.ForMatch(s.tournament) : new List<Rivals.Rival>();
         var names = new List<string>(EnemyNames);
+        if (s.rivals) names.RemoveAll(Rivals.IsRival); // in ranked, rivals only turn up when it's their turn
         for (int i = 0; i < TeamSize; i++)
         {
+            if (i < rivals.Count)
+            {
+                // A rival: their own class, and a notch sharper than the rest.
+                var r = rivals[i];
+                var rb = AddBot(r.name, 1, EnemyColor, Spawn(spawnsB, i, 1));
+                rb.title = Rivals.TitleFor(r);
+                rb.ApplyRole(r.role, s.enemySpread * 0.68f, s.enemyFireRate, s.enemyDamage * 1.15f, s.enemyReaction * 0.7f, s.enemyAimSettle * 0.7f);
+                continue;
+            }
+            if (names.Count == 0) names.Add("Player" + Random.Range(100, 999)); // never run out of names
             int n = Random.Range(0, names.Count);
             var b = AddBot(names[n], 1, EnemyColor, Spawn(spawnsB, i, 1));
             names.RemoveAt(n);
@@ -705,11 +720,18 @@ public class VRArena : MonoBehaviour
             if (streak == 3 || streak == 5) SendHunters(me);
             LiveStream.OnPlayerKill(head, streak);
             string call = streak switch { 2 => "DOUBLE KILL", 3 => "TRIPLE KILL", 4 => "QUAD KILL", _ => streak >= 5 ? "UNSTOPPABLE" : null };
-            if (call != null) Hud.Announce(call, 1.3f, new Color(1f, 0.82f, 0.3f));
+            bool rivalDown = State == Mode.Fighting && victim && Rivals.IsRival(victim.fighterName);
+            if (call == null && rivalDown) Hud.Announce(Rivals.Nemesis != null && Rivals.Nemesis.name == victim.fighterName ? "NEMESIS DOWN" : "RIVAL DOWN", 1.4f, new Color(1f, 0.78f, 0.24f));
+            else if (call != null) Hud.Announce(call, 1.3f, new Color(1f, 0.82f, 0.3f));
             else if (head) Hud.Pop("HEADSHOT");
             else Hud.Pop("ELIMINATED");
         }
         if (victim is VRPlayer) LiveStream.OnPlayerDeath();
+        if (State == Mode.Fighting)
+        {
+            string line = Rivals.OnKill(killer, victim, out var rival, out _);
+            if (Hud && rival != null && line != null) Hud.Chat(rival.name, line);
+        }
         if (Hud) Hud.Feed(killer ? killer.fighterName : "?", victim.fighterName, killer && killer.team == 0, head);
         if (Hud && killer is VRPlayer && Random.value < 0.45f)
             Hud.Chat(AllyNames[Random.Range(0, AllyNames.Length)], Random.value < 0.5f ? "nice shot" : head ? "HEADSHOT lol" : "W");

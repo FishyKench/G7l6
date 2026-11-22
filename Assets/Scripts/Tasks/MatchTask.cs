@@ -277,9 +277,16 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
             allyFireRate = allyShotsPerSecond,
             allyDamage = allyHitDamage,
             allyReaction = allyReactTime,
+            rivals = true,
+            tournament = IsTournament,
         });
-        arena.Hud.Announce(IsTournament ? $"TOURNAMENT - ROUND {RoundNumber}" : $"ROUND {RoundNumber}", 1.6f);
-        arena.Hud.Notice(IsTournament ? "TOURNAMENT - CAPTURE A, B AND C" : "DOMINATION - CAPTURE A, B AND C", Color.white);
+        if (RoundNumber == 1) Rivals.BeginMatch();
+        arena.Hud.Announce(IsTournament ? $"{Campaign.TournamentName} - ROUND {RoundNumber}" : $"ROUND {RoundNumber}", 1.6f);
+        if (!IsTournament && Campaign.PromoPending)
+            arena.Hud.Notice($"PROMOTION MATCH - WIN IT TO REACH {Campaign.RankName(Campaign.PromoRank).ToUpperInvariant()}", new Color(1f, 0.78f, 0.24f));
+        else arena.Hud.Notice(IsTournament ? $"{Campaign.TournamentName} - CAPTURE A, B AND C" : "DOMINATION - CAPTURE A, B AND C", Color.white);
+        if (RoundNumber == 1)
+            foreach (var rival in Rivals.ForMatch(IsTournament)) arena.Hud.Chat(rival.name, rival.gotYou[Random.Range(0, rival.gotYou.Length)]);
         arena.Hud.Chat("Jay", Random.value < 0.5f ? "gl hf" : "we got this");
         if (!inVR && RoundNumber > 1) GameHUD.Toast($"Round {RoundNumber} started without you!", GameHUD.Warn);
     }
@@ -313,9 +320,14 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
             bool victory = Wins >= roundsToWin;
             if (hud) hud.Announce(victory ? "VICTORY" : "DEFEAT", 3f, victory ? new Color32(90, 240, 220, 255) : new Color32(255, 85, 95, 255));
             Text(friendName, victory ? $"GG!! {Wins}-{Losses} we're climbing" : $"{Wins}-{Losses}... bro you were barely on");
-            if (victory) Complete($"Match won {Wins}-{Losses}! +{RankPoints} RP");
-            else Fail($"Match lost {Wins}-{Losses}. {RankPoints} RP");
-            if (Campaign.OnMatchOver(Wins, Losses, victory)) PayPrize(victory); // false = this day's match was already counted before a restart
+            string rp = !IsTournament && Campaign.PromoPending ? "Promotion match" : $"{(RankPoints >= 0 ? "+" : "")}{RankPoints} RP";
+            if (victory) Complete($"Match won {Wins}-{Losses}! {rp}");
+            else Fail($"Match lost {Wins}-{Losses}. {rp}");
+            if (Campaign.OnMatchOver(Wins, Losses, victory)) // false = this day's match was already counted before a restart
+            {
+                PayPrize(victory);
+                Rivals.EndMatch(victory);
+            }
             if (VRArena.Instance) VRArena.Instance.Stop();
             return;
         }
