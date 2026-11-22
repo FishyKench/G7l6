@@ -71,6 +71,10 @@ public class VRHud : MonoBehaviour
     Image flashCover;
     static Sprite lens;
     static Sprite round, vignette;
+    StreamOverlay stream; // LiveLoop panel (only drawn while streaming)
+
+    internal static Sprite RoundedSprite() => Rounded();
+    internal static Sprite RoundSprite() => Round();
 
     void Start()
     {
@@ -228,6 +232,9 @@ public class VRHud : MonoBehaviour
         topBar = Text(root, "", 26, Color.white, TextAlignmentOptions.Center, new Vector2(0, -150), new Vector2(1100, 40), top: true);
         BuildDomination(root);
         topBar.fontStyle = FontStyles.Bold;
+        // LiveLoop stream panel: top-right, above the scope / class cards but under the flashbang white-out.
+        stream = StreamOverlay.Create(root);
+        if (flashCover) stream.Root.SetSiblingIndex(flashCover.rectTransform.GetSiblingIndex());
         announce = Text(root, "", 84, Color.white, TextAlignmentOptions.Center, new Vector2(0, 130), new Vector2(1400, 110));
         announce.fontStyle = FontStyles.Bold;
         info = Text(root, "", 26, new Color(1f, 1f, 1f, 0.85f), TextAlignmentOptions.Center, new Vector2(0, 50), new Vector2(1200, 80));
@@ -799,6 +806,7 @@ public class VRHud : MonoBehaviour
 
         Layout(feed, -1f);
         Layout(chat, 1f);
+        if (stream != null) stream.Update(cardsRoot && cardsRoot.gameObject.activeSelf);
     }
 
     static void Layout(List<(TextMeshProUGUI text, float until)> list, float direction)

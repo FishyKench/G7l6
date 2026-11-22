@@ -28,6 +28,8 @@ public class GameManager : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        Campaign.BeginDay(gameObject.scene); // which day of the week is it (once per scene load)
+        if (!FindObjectOfType<CampaignRuntime>()) gameObject.AddComponent<CampaignRuntime>(); // day rules, intro card, tournament, week summary
         // Make sure the HUD and exhaustion exist even if the setup tool wasn't run.
         if (!FindObjectOfType<GameHUD>()) new GameObject("HUD").AddComponent<GameHUD>();
         if (!FindObjectOfType<ExhaustionManager>()) gameObject.AddComponent<ExhaustionManager>();
@@ -36,6 +38,10 @@ public class GameManager : MonoBehaviour
         if (QualitySettings.pixelLightCount < 12) QualitySettings.pixelLightCount = 12;
         if (!FindObjectOfType<ItemFinder>()) gameObject.AddComponent<ItemFinder>(); // hold Tab to see where things are
         if (!FindObjectOfType<PauseMenu>()) gameObject.AddComponent<PauseMenu>();   // Esc / P
+        if (!FindObjectOfType<MailRuntime>()) gameObject.AddComponent<MailRuntime>(); // MyMail: Mom's jobs, delivery notices (before ShopRuntime so it hears the morning delivery)
+        if (!FindObjectOfType<ShopRuntime>()) gameObject.AddComponent<ShopRuntime>(); // ShopNest deliveries + gadgets
+        if (!FindObjectOfType<ClipHubRuntime>()) gameObject.AddComponent<ClipHubRuntime>(); // ClipHub views / followers / earnings
+        if (!FindObjectOfType<LiveStreamRuntime>()) gameObject.AddComponent<LiveStreamRuntime>(); // LiveLoop streaming: viewers, chat, tips
     }
 
     void Start()
@@ -87,7 +93,7 @@ public class GameManager : MonoBehaviour
     {
         var pool = new List<TaskBase>();
         foreach (var t in tasks)
-            if (t.canStartRandomly && !t.isMainTask && !t.IsActive && t.CanStartNow && Time.time >= t.AvailableAt)
+            if (t.canStartRandomly && !t.isMainTask && !t.IsActive && t.CanStartNow && Time.time >= t.AvailableAt && Campaign.AllowRandomTask(t))
                 pool.Add(t);
 
         if (pool.Count > 0)

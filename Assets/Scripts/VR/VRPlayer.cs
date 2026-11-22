@@ -472,8 +472,12 @@ public class VRPlayer : VRFighter
         Cam.transform.localRotation = Quaternion.identity;
     }
 
+    /// <summary>Low (sliding / crouched): the replay recorder reads this.</summary>
+    public bool Crouched { get; private set; }
+
     void SetCrouched(bool low)
     {
+        Crouched = low;
         if (!cc) return;
         cc.height = low ? 1.0f : 1.8f;
         cc.center = new Vector3(0f, low ? 0.5f : 0.9f, 0f);

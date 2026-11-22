@@ -32,6 +32,10 @@ public class VRArena : MonoBehaviour
     }
 
     public Mode State { get; private set; }
+    /// <summary>Goes up every time a new round is set up (the replay recorder uses it to tell rounds apart).</summary>
+    public int RoundSerial { get; private set; }
+    /// <summary>The whole arena's bounds (found when it loaded).</summary>
+    public Bounds AreaBounds => area;
     public float TimeLeft { get; private set; }
     public VRPlayer Player { get; private set; }
     public VRHud Hud { get; private set; }
@@ -115,6 +119,7 @@ public class VRArena : MonoBehaviour
         Player.Respawn(s.position, s.rotation);
         Hud = gameObject.AddComponent<VRHud>();
         BuildSparks();
+        gameObject.AddComponent<ReplayRecorder>(); // records every round for the Clip Studio
         Ready = true;
     }
 
@@ -179,6 +184,7 @@ public class VRArena : MonoBehaviour
 
     void SetUpTeams(RoundSettings s)
     {
+        RoundSerial++;
         ClearBots();
         Score[0] = Score[1] = 0f;
         ScoreLimit = s.scoreLimit > 0f ? s.scoreLimit : 100f;
@@ -258,6 +264,14 @@ public class VRArena : MonoBehaviour
         return made;
     }
 
+    /// <summary>Where a team spawns (for the made-up test recording): index wraps round the spawn points.</summary>
+    public Vector3 SpawnPosition(int team, int index)
+    {
+        var list = team == 0 ? spawnsA : spawnsB;
+        if (list.Count == 0) return area.center + new Vector3((team == 0 ? -1 : 1) * area.extents.x * 0.85f, -area.extents.y, (index - 4) * 2.5f);
+        return list[Mathf.Abs(index) % list.Count].position;
+    }
+
     /// <summary>The team's spawn point furthest from living enemies (so nobody spawns into a gunfight).</summary>
     Transform SafeSpawn(int team)
     {
@@ -330,6 +344,7 @@ public class VRArena : MonoBehaviour
         if (Score[0] < ScoreLimit && Score[1] < ScoreLimit && TimeLeft > 0f) return;
         bool tie = Mathf.Abs(Score[0] - Score[1]) < 0.5f;
         bool won = tie ? held[0] > held[1] || (held[0] == held[1] && Random.value < 0.5f) : Score[0] > Score[1];
+        LiveStream.OnRoundEnd(won);
         if (State == Mode.Practice)
         {
             State = Mode.Idle;
@@ -380,6 +395,7 @@ public class VRArena : MonoBehaviour
     {
         if ((State != Mode.Fighting && State != Mode.Practice) || !Hud) return;
         string l = flag.letter;
+        LiveStream.OnFlag(owner);
         if (owner == 0) { Hud.Notice($"{l} CAPTURED", AllyColor); Callout(owner, flag); }
         else if (owner == 1) { Hud.Notice($"ENEMY CAPTURED {l}", EnemyColor); Callout(owner, flag); }
         else if (old == 0) Hud.Notice($"{l} LOST", EnemyColor);
@@ -639,6 +655,8 @@ public class VRArena : MonoBehaviour
     {
         const float range = 120f;
         Vector3 end = origin + dir * range;
+        VRFighter hitFighter = null;
+        bool hitHead = false;
         var hits = Physics.RaycastAll(origin, dir, range, ~0, QueryTriggerInteraction.Ignore);
         System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
         foreach (var hit in hits)
@@ -650,6 +668,8 @@ public class VRArena : MonoBehaviour
             {
                 if (f.team == shooter.team || !f.Alive) break; // a teammate's in the way: the shot stops there
                 bool head = hit.collider.name == "Head" || (f is VRPlayer victim && victim.IsHead(hit.point));
+                hitFighter = f;
+                hitHead = head;
                 bool sniper = shooter is VRBot sb && sb.Role == VRRole.Sniper;
                 float multiplier = head ? (shooter is VRPlayer p ? p.headshotMultiplier : sniper ? 2f : 1.5f) : 1f;
                 f.TakeDamage(damage * multiplier, shooter, head);
@@ -665,12 +685,14 @@ public class VRArena : MonoBehaviour
             break;
         }
         Tracer(muzzle ?? origin, end, color);
+        ReplayRecorder.Shot(shooter, muzzle ?? origin, end, hitFighter, hitHead);
         foreach (var b in bots)
             if (b && b.Alive && b.team != shooter.team) b.Hear(shooter, origin);
     }
 
     public void OnKill(VRFighter killer, VRFighter victim, bool head)
     {
+        ReplayRecorder.Kill(killer, victim, head);
         if (State == Mode.Practice || State == Mode.Fighting)
         {
             if (victim is VRBot b) respawns.Add((b, Time.time + (State == Mode.Fighting ? botRespawnSeconds : 3f)));
@@ -681,11 +703,13 @@ public class VRArena : MonoBehaviour
         {
             int streak = me.RegisterKill();
             if (streak == 3 || streak == 5) SendHunters(me);
+            LiveStream.OnPlayerKill(head, streak);
             string call = streak switch { 2 => "DOUBLE KILL", 3 => "TRIPLE KILL", 4 => "QUAD KILL", _ => streak >= 5 ? "UNSTOPPABLE" : null };
             if (call != null) Hud.Announce(call, 1.3f, new Color(1f, 0.82f, 0.3f));
             else if (head) Hud.Pop("HEADSHOT");
             else Hud.Pop("ELIMINATED");
         }
+        if (victim is VRPlayer) LiveStream.OnPlayerDeath();
         if (Hud) Hud.Feed(killer ? killer.fighterName : "?", victim.fighterName, killer && killer.team == 0, head);
         if (Hud && killer is VRPlayer && Random.value < 0.45f)
             Hud.Chat(AllyNames[Random.Range(0, AllyNames.Length)], Random.value < 0.5f ? "nice shot" : head ? "HEADSHOT lol" : "W");

@@ -227,6 +227,19 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
         GameHUD.Toast(scattered.Count == 0 ? "Got them all! Now to the washer." : $"Dirty clothes {collected}/{collected + scattered.Count}", scattered.Count == 0 ? GameHUD.Good : GameHUD.Info);
     }
 
+    /// <summary>The robot vacuum swallowed a piece. It always leaves the last one, so the player still carries an armful to the washer.</summary>
+    public bool RobotTake(DirtyClothesPiece piece)
+    {
+        if (!IsActive || phase != Phase.WaitingForClothes || !scattered.Contains(piece) || scattered.Count <= 1) return false;
+        scattered.Remove(piece);
+        Destroy(piece.gameObject);
+        collected++;
+        EnsureArmful();
+        ShowLumps(collected);
+        GameHUD.Toast($"The robot vacuum tidied up a piece! {scattered.Count} left.", GameHUD.Good);
+        return true;
+    }
+
     /// <summary>The armful of dirty clothes you carry (it grows with each piece).</summary>
     void EnsureArmful()
     {

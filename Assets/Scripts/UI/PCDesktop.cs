@@ -38,7 +38,7 @@ public partial class PCDesktop : MonoBehaviour
 
     GameObject root;
     RectTransform screen, windowLayer, cursor, startMenu, startButton, startGetUp, taskList;
-    TextMeshProUGUI clock;
+    TextMeshProUGUI clock, desktopHint;
     readonly List<Icon> icons = new List<Icon>();
     readonly List<Window> windows = new List<Window>();
     Window focused, homeworkWin, gameWin, otherWin;
@@ -51,6 +51,10 @@ public partial class PCDesktop : MonoBehaviour
     RectTransform playButton, quitButton, launchFill;
     Image playBg;
     TextMeshProUGUI playText, launcherStatus, launcherHint, otherBody;
+    // The rank card in the launcher (week campaign)
+    TextMeshProUGUI launcherTitle, launcherSub, rankLetter, rankName, rankPoints, rankNext, rankGate, startUser;
+    Image rankBadge, rankFillImage;
+    RectTransform rankFill;
 
     /// <summary>What's in front: "homework", "game", or null (the desktop or another app).</summary>
     public string FocusedApp => focused != null && focused.open && !focused.minimized && (focused == homeworkWin || focused == gameWin) ? focused.id : null;
@@ -59,6 +63,7 @@ public partial class PCDesktop : MonoBehaviour
     {
         if (!root) Build();
         root.SetActive(true);
+        if (startUser) startUser.text = "<b>You</b>\n<size=70%><color=#FFFFFF88>Ranked: " + Campaign.RankText + "</color></size>";
         startMenu.gameObject.SetActive(false);
     }
 
@@ -81,7 +86,10 @@ public partial class PCDesktop : MonoBehaviour
         clock.text = ClockText();
         UpdateLauncher();
         UpdateStore();
+        UpdateBrowser();
+        UpdateClips();
         UpdateTaskbar();
+        if (desktopHint) desktopHint.gameObject.SetActive(!windows.Exists(w => w.open && !w.minimized));
 
         if (Input.GetKeyDown(KeyCode.Tab)) { CycleWindows(); return; }
 
@@ -131,6 +139,8 @@ public partial class PCDesktop : MonoBehaviour
             if (focused != w) Focus(w);
             if (w == gameWin) LauncherClick();
             if (w == storeWin) StoreClick();
+            if (w == browserWin) BrowserClick();
+            if (w == clipsWin) ClipsClick();
             return;
         }
 
@@ -174,6 +184,8 @@ public partial class PCDesktop : MonoBehaviour
         }
         if (id == "game") { Focus(Opened(gameWin)); return; }
         if (id == "store") { if (!storeWin.open) RebuildLibrary(); Focus(Opened(storeWin)); return; }
+        if (id == "browser") { OpenBrowser(); return; }
+        if (id == "clips") { OpenClips(); return; }
         var icon = icons.Find(i => i.id == id);
         if (icon == null) return;
         SetTitle(otherWin, icon.label);
@@ -266,6 +278,18 @@ public partial class PCDesktop : MonoBehaviour
         UIFactory.Fill(x.rectTransform);
         w.content = UIFactory.Rect("Content", w.rt);
         UIFactory.Fill(w.content, 0, 0, 36, 0);
+        // A strip of tape holding each window to the screen, like a note.
+        var tapeSprite = HudArt.Get("tape");
+        if (tapeSprite)
+        {
+            for (int i = -1; i <= 1; i += 2)
+            {
+                var tape = UIFactory.Panel("Tape", w.rt, new Color(1f, 1f, 1f, 0.85f));
+                tape.sprite = tapeSprite;
+                UIFactory.Place(tape.rectTransform, new Vector2(i < 0 ? 0f : 1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(i * -18f, 2f), new Vector2(84, 28));
+                tape.rectTransform.localRotation = Quaternion.Euler(0, 0, i * -32f);
+            }
+        }
         w.rt.gameObject.SetActive(false);
         windows.Add(w);
         return w;
@@ -317,9 +341,11 @@ public partial class PCDesktop : MonoBehaviour
         UIFactory.Place(glow2.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(340, -160), new Vector2(900, 600));
 
         var title = UIFactory.Text("Title", content, 92, new Color32(90, 240, 220, 255), TextAlignmentOptions.Center);
+        launcherTitle = title;
         title.text = "<b>RANKED ARENA</b>";
         UIFactory.Place(title.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 170), new Vector2(1200, 110));
         var sub = UIFactory.Text("Sub", content, 24, new Color(1f, 1f, 1f, 0.7f), TextAlignmentOptions.Center);
+        launcherSub = sub;
         sub.text = "8v8 Domination  -  capture A, B, C  -  VR";
         UIFactory.Place(sub.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 105), new Vector2(800, 34));
         launcherStatus = UIFactory.Text("Status", content, 26, new Color32(255, 120, 200, 255), TextAlignmentOptions.Center);
@@ -348,15 +374,90 @@ public partial class PCDesktop : MonoBehaviour
         var qt = UIFactory.Text("Text", quitButton, 18, Color.white, TextAlignmentOptions.Center);
         qt.text = "QUIT GAME";
         UIFactory.Fill(qt.rectTransform);
+
+        BuildRankCard(content);
+    }
+
+    /// <summary>Bottom-left of the launcher: rank badge, name, points, a bar to the next rank and the tournament gate.</summary>
+    void BuildRankCard(RectTransform content)
+    {
+        var card = UIFactory.Panel("Rank card", content, new Color(1f, 1f, 1f, 0.07f));
+        card.sprite = Round();
+        card.type = Image.Type.Sliced;
+        UIFactory.Place(card.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(24, 24), new Vector2(470, 128));
+        var c = card.transform;
+
+        rankBadge = UIFactory.Panel("Badge", c, new Color32(255, 200, 64, 255));
+        rankBadge.sprite = Round();
+        UIFactory.Place(rankBadge.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16, -16), new Vector2(58, 58));
+        rankLetter = UIFactory.Text("Letter", rankBadge.transform, 32, new Color32(16, 12, 36, 255), TextAlignmentOptions.Center);
+        rankLetter.fontStyle = FontStyles.Bold;
+        rankLetter.enableWordWrapping = false;
+        UIFactory.Fill(rankLetter.rectTransform);
+
+        rankName = UIFactory.Text("Name", c, 30, Color.white, TextAlignmentOptions.MidlineLeft);
+        rankName.fontStyle = FontStyles.Bold;
+        rankName.enableWordWrapping = false;
+        UIFactory.Place(rankName.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(86, -14), new Vector2(220, 34));
+        rankPoints = UIFactory.Text("Points", c, 20, new Color(1f, 1f, 1f, 0.85f), TextAlignmentOptions.MidlineRight);
+        rankPoints.enableWordWrapping = false;
+        UIFactory.Place(rankPoints.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-18, -18), new Vector2(150, 28));
+
+        var barBg = UIFactory.Panel("Bar", c, new Color(1f, 1f, 1f, 0.14f));
+        barBg.sprite = Round();
+        barBg.type = Image.Type.Sliced;
+        UIFactory.Place(barBg.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(86, -58), new Vector2(366, 12));
+        rankFillImage = UIFactory.Panel("Fill", barBg.transform, new Color32(255, 200, 64, 255));
+        rankFillImage.sprite = Round();
+        rankFillImage.type = Image.Type.Sliced;
+        rankFill = rankFillImage.rectTransform;
+        rankFill.anchorMin = Vector2.zero;
+        rankFill.anchorMax = new Vector2(0f, 1f);
+        rankFill.pivot = new Vector2(0f, 0.5f);
+        rankFill.offsetMin = rankFill.offsetMax = Vector2.zero;
+
+        rankNext = UIFactory.Text("Next", c, 15, new Color(1f, 1f, 1f, 0.6f), TextAlignmentOptions.MidlineLeft);
+        rankNext.enableWordWrapping = false;
+        UIFactory.Place(rankNext.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(86, -74), new Vector2(366, 20));
+
+        var rule = UIFactory.Panel("Rule", c, new Color(1f, 1f, 1f, 0.12f));
+        UIFactory.Place(rule.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -98), new Vector2(438, 1));
+        rankGate = UIFactory.Text("Gate", c, 17, new Color32(255, 120, 200, 255), TextAlignmentOptions.MidlineLeft);
+        rankGate.enableWordWrapping = false;
+        UIFactory.Place(rankGate.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(16, -100), new Vector2(438, 24));
+    }
+
+    void UpdateRankCard()
+    {
+        var rank = Campaign.CurrentRank;
+        Color col = Campaign.RankColour(rank);
+        rankBadge.color = col;
+        rankFillImage.color = col;
+        rankLetter.text = Campaign.RankName(rank).Substring(0, 1);
+        rankName.text = Campaign.RankName(rank).ToUpperInvariant();
+        rankName.color = col;
+        rankPoints.text = Campaign.Rating + " RP";
+        rankFill.anchorMax = new Vector2(Mathf.Max(0.02f, Campaign.ProgressInRank), 1f);
+        rankNext.text = rank == Campaign.Rank.Champion ? "Top rank reached" : $"{Campaign.PointsToNextRank} RP to {Campaign.RankName(rank + 1)}";
+
+        string gate = Campaign.RankName(Campaign.GateRank);
+        if (Campaign.TournamentToday) { rankGate.text = $"TOURNAMENT TODAY at {Campaign.HourText(Campaign.Today.matchStartHour)}"; rankGate.color = new Color32(255, 200, 64, 255); }
+        else if (Campaign.IsFriday) { rankGate.text = $"Tournament needed {gate}  -  you missed it"; rankGate.color = new Color32(255, 120, 130, 255); }
+        else if (Campaign.ReachedGate) { rankGate.text = $"Friday tournament: qualified ({gate}+)"; rankGate.color = new Color32(110, 230, 140, 255); }
+        else { rankGate.text = $"Friday tournament needs {gate}  -  {Campaign.PointsToGate} RP to go"; rankGate.color = new Color32(255, 120, 200, 255); }
     }
 
     void UpdateLauncher()
     {
         if (gameWin == null || !gameWin.open) return;
         var game = pc.Match;
+        bool tournament = MatchTask.IsTournament;
+        launcherTitle.text = tournament ? "<b>TOURNAMENT</b>" : "<b>RANKED ARENA</b>";
+        launcherSub.text = tournament ? $"Best of 5  -  1st ${Campaign.Prize1st}  -  2nd ${Campaign.Prize2nd}  -  VR" : "8v8 Domination  -  capture A, B, C  -  VR";
+        UpdateRankCard();
         launcherStatus.text = !game ? "" : game.State switch
         {
-            MatchTask.Phase.Waiting => "Ranked match today at 4:00 PM",
+            MatchTask.Phase.Waiting => tournament ? $"Tournament today at {game.StartTimeText}" : $"Ranked match today at {game.StartTimeText}",
             MatchTask.Phase.Round => $"Round {game.RoundNumber} is LIVE   {game.Wins} : {game.Losses}",
             MatchTask.Phase.Break => $"{game.Wins} : {game.Losses}  -  next round soon",
             _ => game.Wins >= game.roundsToWin ? $"Match won {game.Wins} : {game.Losses}" : $"Match lost {game.Wins} : {game.Losses}",
@@ -419,16 +520,9 @@ public partial class PCDesktop : MonoBehaviour
 
         AddIcon("homework", "Homework", null, DrawHomework);
         AddIcon("game", "Ranked Arena", null, DrawGame);
-        AddIcon("pc", "This PC", "Storage: 98% full.\nMostly game clips.", DrawPC);
-        AddIcon("bin", "Recycle Bin", "Empty.\nYou already deleted the evidence.", DrawBin);
         AddIcon("browser", "Browser", "47 tabs open.\nClosing them would take effort.", DrawBrowser);
-        AddIcon("music", "Music", "Playlist: \"focus vibes\"\n(you have never focused)", DrawMusic);
-        AddIcon("messages", "Messages", "Jay: you on at 4??\nJay: dont be late\nJay: ...", DrawMessages);
-        AddIcon("photos", "Photos", "1,204 photos.\n1,198 of them are the cat.", DrawPhotos);
-        AddIcon("files", "Files", "Homework (final).docx\nHomework (final 2).docx\nHomework (REAL final).docx", DrawFiles);
-        AddIcon("settings", "Settings", "Nothing to change.\nIt's perfect already.", DrawSettings);
-        AddIcon("store", "Vapor", null, DrawStore);
-        AddIcon("notes", "Notes", "TODO:\n- everything", DrawNotes);
+        AddIcon("store", "Pixel Vault", null, DrawStore);
+        AddIcon("clips", "Clip Studio", null, DrawClips);
 
         foreach (var g in Catalogue) if (Owns(g)) AddGameIcon(g);
         windowLayer = UIFactory.Rect("Windows", screen);
@@ -438,6 +532,8 @@ public partial class PCDesktop : MonoBehaviour
         gameWin = MakeWindow("game", "Ranked Arena", big, new Color32(16, 12, 36, 255));
         BuildLauncher(gameWin.content);
         BuildStore();
+        BuildBrowser();
+        BuildClips();
         otherWin = MakeWindow("other", "App", new Vector2(560, 300), new Color32(240, 240, 246, 255));
         otherWin.rt.anchoredPosition = new Vector2(140, 60);
         otherBody = UIFactory.Text("Body", otherWin.content, 24, new Color32(40, 40, 60, 255), TextAlignmentOptions.Center);
@@ -454,13 +550,19 @@ public partial class PCDesktop : MonoBehaviour
         var cimg = cursor.gameObject.AddComponent<Image>();
         cimg.sprite = Arrow();
         cimg.raycastTarget = false;
+
+        // Sketchbook look over everything on the screen (see PcSketch).
+        var sketch = screen.gameObject.AddComponent<PcSketch>();
+        sketch.roundSprite = Round();
+        sketch.font = GameHUD.Instance ? GameHUD.Instance.font : null;
+        sketch.Scan();
         root.SetActive(false);
     }
 
     void Wallpaper()
     {
         var bg = UIFactory.Rect("Wallpaper", screen).gameObject.AddComponent<RawImage>();
-        bg.texture = global::Wallpaper.Texture;
+        bg.texture = PcSketch.PaperWallpaper;
         bg.raycastTarget = false;
         UIFactory.Fill(bg.rectTransform);
     }
@@ -518,7 +620,7 @@ public partial class PCDesktop : MonoBehaviour
         clock = UIFactory.Text("Clock", bar.transform, 18, Color.white, TextAlignmentOptions.Right);
         clock.enableWordWrapping = false;
         UIFactory.Place(clock.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-14, 0), new Vector2(100, 30));
-        var hint = UIFactory.Text("Hint", screen, 15, new Color(1f, 1f, 1f, 0.45f), TextAlignmentOptions.Right);
+        var hint = desktopHint = UIFactory.Text("Hint", screen, 15, new Color(1f, 1f, 1f, 0.45f), TextAlignmentOptions.Right);
         hint.text = "Double-click to open   -   TAB switch windows   -   ESC get up";
         UIFactory.Place(hint.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-14, TaskbarH + 8), new Vector2(600, 22));
     }
@@ -529,7 +631,8 @@ public partial class PCDesktop : MonoBehaviour
         startMenu = m.rectTransform;
         UIFactory.Place(startMenu, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(8, TaskbarH + 6), new Vector2(300, 220));
         var user = UIFactory.Text("User", startMenu, 22, Color.white, TextAlignmentOptions.TopLeft);
-        user.text = "<b>You</b>\n<size=70%><color=#FFFFFF88>Ranked: Silver II</color></size>";
+        startUser = user;
+        user.text = "<b>You</b>\n<size=70%><color=#FFFFFF88>Ranked: " + Campaign.RankText + "</color></size>";
         UIFactory.Fill(user.rectTransform, 20, 20, 18, 100);
         var up = UIFactory.Panel("Get up", startMenu, new Color(1f, 1f, 1f, 0.08f));
         startGetUp = up.rectTransform;
@@ -651,9 +754,9 @@ public partial class PCDesktop : MonoBehaviour
 
     static void DrawStore(RectTransform r)
     {
-        Shape(r, new Color32(130, 90, 240, 255), new Vector2(0, -6), new Vector2(50, 42), true);
-        Dot(r, new Color32(130, 90, 240, 255), new Vector2(0, 16), 24);
-        Dot(r, Color.white, new Vector2(0, -6), 12);
+        Shape(r, new Color32(90, 240, 220, 255), Vector2.zero, new Vector2(60, 60), true);
+        Shape(r, new Color32(24, 18, 52, 255), Vector2.zero, new Vector2(54, 54), true);
+        DrawPad(r, 0.85f, new Color32(140, 90, 255, 255), new Color32(90, 240, 220, 255));
     }
 
     static void DrawNotes(RectTransform r)

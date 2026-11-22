@@ -29,7 +29,7 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
     public float puddleGrowTime = 30f;
 
     bool bucketPlaced;
-    float puddleSize;
+    float puddleSize, growTime;
     Vector3 floorPoint;
 
     void Reset()
@@ -117,6 +117,17 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
 
         puddleSize = 0.15f;
         SetPuddle(puddleSize);
+
+        // Leak sensor: it tells you straight away where the water is, and the puddle grows half as fast.
+        growTime = puddleGrowTime;
+        if (Shop.IsInstalled(Shop.LeakSensor))
+        {
+            growTime = puddleGrowTime * 2f;
+            var layout = HouseLayout.Instance;
+            var room = layout ? layout.RoomAt(floorPoint + Vector3.up * 0.1f, layout.FloorAt(floorPoint.y)) : null;
+            GameHUD.Toast("Leak sensor: water detected in " + (room != null ? room.name.ToLowerInvariant() : "the house") + "!", GameHUD.Warn);
+            Fx.Play(Fx.Beep, floorPoint + Vector3.up, 0.8f, 1.15f);
+        }
         if (visualRoot) visualRoot.SetActive(true);
         if (drips) drips.Play();
         if (tap) tap.SetRunning(true);
@@ -154,7 +165,7 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
         }
 
         if (Stress) Stress.AddStress(stressPerSecond * Time.deltaTime);
-        puddleSize = Mathf.MoveTowards(puddleSize, puddleMaxDiameter, puddleMaxDiameter / Mathf.Max(1f, puddleGrowTime) * Time.deltaTime);
+        puddleSize = Mathf.MoveTowards(puddleSize, puddleMaxDiameter, puddleMaxDiameter / Mathf.Max(1f, growTime > 0f ? growTime : puddleGrowTime) * Time.deltaTime);
         SetPuddle(puddleSize);
     }
 

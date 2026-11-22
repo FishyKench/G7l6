@@ -24,7 +24,8 @@ public class OvenTask : TaskBase, IInteractable, IPromptProvider
     public float glowStrength = 1.2f;
 
     Phase phase;
-    float cookTimer;
+    float cookTimer, nextWarningBeep;
+    bool warned;
     readonly List<Material> glowMaterials = new List<Material>();
     readonly List<Color> originalEmission = new List<Color>();
     readonly List<bool> originalKeyword = new List<bool>();
@@ -130,8 +131,26 @@ public class OvenTask : TaskBase, IInteractable, IPromptProvider
             if (cookTimer >= cookTime)
             {
                 phase = Phase.Ready;
-                StartDeadline(Mathf.Max(1f, catchFireAt - cookTime));
-                GameHUD.Toast("Dinner is ready - turn off the oven!", GameHUD.Warn);
+                bool timer = Shop.IsInstalled(Shop.OvenTimer);
+                // Smart oven timer: 50% longer before it catches fire (and it beeps before that happens).
+                StartDeadline(Mathf.Max(1f, catchFireAt - cookTime) * (timer ? 1.5f : 1f));
+                warned = false;
+                GameHUD.Toast(timer ? "Smart timer: dinner is ready - turn off the oven!" : "Dinner is ready - turn off the oven!", GameHUD.Warn);
+                if (timer) Fx.Play(Fx.Beep, transform.position, 0.8f, 1f);
+            }
+        }
+        else if (phase == Phase.Ready && DeadlineRunning && TimeLeft <= 8f && Shop.IsInstalled(Shop.OvenTimer))
+        {
+            // Smart oven timer: a warning, with beeps, a few seconds before the fire.
+            if (!warned)
+            {
+                warned = true;
+                GameHUD.Toast("Smart timer: the oven is overheating - turn it OFF!", GameHUD.Bad);
+            }
+            if (Time.time >= nextWarningBeep)
+            {
+                nextWarningBeep = Time.time + 1.1f;
+                Fx.Play(Fx.Beep, transform.position, 0.9f, 1f + 0.12f * (8f - TimeLeft) / 8f);
             }
         }
     }

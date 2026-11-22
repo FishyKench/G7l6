@@ -251,6 +251,28 @@ public class FloodHazard : HazardTask
         Repaint();
     }
 
+    /// <summary>The robot vacuum dries the water round a point (a disc of 'radius' metres; 'amount' is 0..1 of the water there).</summary>
+    public void DryAt(Vector3 point, float radius, float amount)
+    {
+        if (!IsActive || wet == null || !puddle) return;
+        Vector3 l = puddle.InverseTransformPoint(point);
+        Vector2 u = new Vector2(l.x + 0.5f, l.z + 0.5f);
+        float brush = radius / Mathf.Max(0.01f, puddle.lossyScale.x);
+        int x0 = Mathf.Max(0, Mathf.FloorToInt((u.x - brush) * Res)), x1 = Mathf.Min(Res - 1, Mathf.CeilToInt((u.x + brush) * Res));
+        int y0 = Mathf.Max(0, Mathf.FloorToInt((u.y - brush) * Res)), y1 = Mathf.Min(Res - 1, Mathf.CeilToInt((u.y + brush) * Res));
+        if (x0 > x1 || y0 > y1) return;
+        for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++)
+        {
+            float d = Vector2.Distance(new Vector2((x + 0.5f) / Res, (y + 0.5f) / Res), u) / brush;
+            if (d >= 1f) continue;
+            int i = y * Res + x;
+            wet[i] = Mathf.Max(0f, wet[i] - amount * (1f - d * d));
+        }
+        Repaint();
+        if (cleaned >= cleanTarget) Complete(ClearedMessage);
+    }
+
     void Repaint()
     {
         float left = 0f;

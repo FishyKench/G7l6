@@ -114,7 +114,7 @@ public class DayHud : MonoBehaviour
         else if (day.State == DayManager.Phase.Day)
         {
             float minutesLeft = (day.endHour - hour) * 60f;
-            untilText.text = minutesLeft > 60f ? "MOM HOME AT 6:00" : $"MOM HOME IN {Mathf.CeilToInt(minutesLeft)} MIN";
+            untilText.text = minutesLeft > 60f ? "MOM HOME AT " + Campaign.HourText(day.endHour).Replace(" PM", "") : $"MOM HOME IN {Mathf.CeilToInt(minutesLeft)} MIN";
             untilText.color = minutesLeft > 30f ? new Color(0.13f, 0.13f, 0.16f, 0.65f) : Red;
             float pulse = minutesLeft <= 10f ? 1f + Mathf.Sin(Time.unscaledTime * 8f) * 0.04f : 1f;
             clock.localScale = new Vector3(pulse, pulse, 1f);
@@ -215,7 +215,7 @@ public class DayHud : MonoBehaviour
         UIFactory.Fill(dim.rectTransform);
 
         var card = UIFactory.Rect("Report Card", canvasRoot);
-        UIFactory.Place(card, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(660, 720));
+        UIFactory.Place(card, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(660, 790));
         card.localRotation = Quaternion.Euler(0, 0, -1.2f);
         var group = card.gameObject.AddComponent<CanvasGroup>();
         group.alpha = 0f;
@@ -230,7 +230,7 @@ public class DayHud : MonoBehaviour
 
         var title = Line(card, r.meltdown ? "MELTDOWN" : "REPORT CARD", 46, Ink, new Vector2(-70, -60), new Vector2(480, 56), TextAlignmentOptions.Left);
         title.fontStyle = FontStyles.Bold;
-        Line(card, r.meltdown ? "Your stress hit the roof. The day is over." : "Mom got home at 6:00 PM. Here's what she thinks.",
+        Line(card, r.meltdown ? $"{Campaign.DayName}, week {Campaign.Week} - your stress hit the roof." : $"{Campaign.DayName}, week {Campaign.Week} - Mom got home at {Campaign.HourText(day.endHour)}.",
             17, new Color(0.13f, 0.13f, 0.16f, 0.65f), new Vector2(-70, -100), new Vector2(480, 26), TextAlignmentOptions.Left);
 
         // Grade, circled in red marker.
@@ -267,7 +267,7 @@ public class DayHud : MonoBehaviour
 
         if (r.match != null)
         {
-            Row("Ranked match", $"{r.match}  ({(r.rankPoints >= 0 ? "+" : "")}{r.rankPoints} RP)", 0);
+            Row(r.matchLabel, $"{r.match}  ({r.matchExtra})", 0);
             y -= 6f;
         }
         Row("Homework", r.homework, -r.homeworkPoints);
@@ -283,11 +283,20 @@ public class DayHud : MonoBehaviour
         }
         Row("Stress", r.stress + "%", -r.stressPenalty);
 
+        // Allowance, paid into the wallet (Bank page in the PC browser).
+        y -= 4f;
+        var rule = UIFactory.Panel("Rule", card, new Color(0.13f, 0.13f, 0.16f, 0.25f));
+        UIFactory.Place(rule.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0, y + 8f), new Vector2(560, 2));
+        Line(card, "Allowance", 21, Ink, new Vector2(48, y - 12f), new Vector2(300, 30), TextAlignmentOptions.MidlineLeft, anchorLeft: true).fontStyle = FontStyles.Bold;
+        Line(card, r.allowance > 0 ? "+$" + r.allowance : "$0  (grounded)", 22, r.allowance > 0 ? Green : Red, new Vector2(-48, y - 12f), new Vector2(240, 30),
+            TextAlignmentOptions.MidlineRight, anchorRight: true).fontStyle = FontStyles.Bold;
+
         var quote = Line(card, $"\"{r.momSays}\"", 24, Ink, new Vector2(0, 92), new Vector2(560, 64), TextAlignmentOptions.Center, anchorBottom: true);
         quote.fontStyle = FontStyles.Italic;
         quote.enableWordWrapping = true;
         Line(card, "- Mom", 17, new Color(0.13f, 0.13f, 0.16f, 0.6f), new Vector2(200, 58), new Vector2(160, 24), TextAlignmentOptions.Right, anchorBottom: true);
-        Line(card, "Press  R  to play the day again", 17, new Color(0.13f, 0.13f, 0.16f, 0.55f), new Vector2(0, 26), new Vector2(560, 24), TextAlignmentOptions.Center, anchorBottom: true);
+        Line(card, Campaign.IsFriday ? $"{Campaign.RankName(Campaign.CurrentRank)}  {Campaign.Rating} RP   -   Press  R  for the week summary"
+            : $"{Campaign.RankName(Campaign.CurrentRank)}  {Campaign.Rating} RP   -   Press  R  for {Campaign.DayNames[Mathf.Min(Campaign.Friday, Campaign.DayIndex + 1)]}", 17, new Color(0.13f, 0.13f, 0.16f, 0.55f), new Vector2(0, 26), new Vector2(560, 24), TextAlignmentOptions.Center, anchorBottom: true);
 
         // Drop in, then stamp the grade.
         for (float t = 0f; t < 1f; t += Time.unscaledDeltaTime / 0.35f)

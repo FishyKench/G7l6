@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// "Vapor": the PC's game store. Buy games with your money (see Wallet); a bought game downloads for a few
+/// "Pixel Vault": the PC's game store and library. Buy games with your money (see Wallet); a bought game downloads for a few
 /// seconds, then shows up in your Library and on the desktop. Ranked Arena is free and already yours.
 /// </summary>
 public partial class PCDesktop
@@ -66,21 +66,31 @@ public partial class PCDesktop
     void BuildStore()
     {
         var big = new Vector2(ScreenW - 40f, ScreenH - TaskbarH - 30f);
-        storeWin = MakeWindow("store", "Vapor", big, StoreBg);
+        storeWin = MakeWindow("store", "Pixel Vault - Games & Library", big, StoreBg);
         var c = storeWin.content;
+        var glowA = UIFactory.Panel("Glow", c, new Color(0.45f, 0.25f, 1f, 0.16f));
+        glowA.sprite = Round();
+        UIFactory.Place(glowA.rectTransform, new Vector2(0f, 1f), new Vector2(0.5f, 0.5f), new Vector2(150, -120), new Vector2(900, 600));
+        var glowB = UIFactory.Panel("Glow", c, new Color(0.2f, 0.85f, 1f, 0.1f));
+        glowB.sprite = Round();
+        UIFactory.Place(glowB.rectTransform, new Vector2(1f, 0f), new Vector2(0.5f, 0.5f), new Vector2(-150, 60), new Vector2(900, 600));
 
         // Top bar: logo, tabs, wallet.
         var top = UIFactory.Panel("Top bar", c, new Color32(12, 15, 22, 255));
         UIFactory.Place(top.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(big.x, 64));
-        var logo = UIFactory.Text("Logo", top.transform, 30, Color.white, TextAlignmentOptions.MidlineLeft);
-        logo.text = "<b>VAPOR</b>";
-        logo.characterSpacing = 8f;
-        UIFactory.Place(logo.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(28, 0), new Vector2(200, 50));
-        var steam = UIFactory.Panel("Logo dot", top.transform, StoreAccent);
-        steam.sprite = Round();
-        UIFactory.Place(steam.rectTransform, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(18, 0), new Vector2(10, 10));
-        storeTabBtn = Tab(top.rectTransform, "STORE", 250, out storeTabLine);
-        libraryTabBtn = Tab(top.rectTransform, "LIBRARY", 400, out libraryTabLine);
+        var mark = UIFactory.Rect("Logo mark", top.transform);
+        UIFactory.Place(mark, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(46, 0), new Vector2(64, 64));
+        DrawPad(mark, 0.8f, new Color32(140, 90, 255, 255), new Color32(90, 240, 220, 255));
+        var logo = UIFactory.Text("Logo", top.transform, 28, Color.white, TextAlignmentOptions.MidlineLeft);
+        logo.text = "<b>PIXEL<color=#5AF0DC>VAULT</color></b>";
+        logo.characterSpacing = 4f;
+        UIFactory.Place(logo.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(84, 8), new Vector2(240, 36));
+        var slogan = UIFactory.Text("Slogan", top.transform, 13, new Color(1f, 1f, 1f, 0.5f), TextAlignmentOptions.MidlineLeft);
+        slogan.text = "BUY GAMES  -  PLAY YOUR LIBRARY";
+        slogan.characterSpacing = 2f;
+        UIFactory.Place(slogan.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(85, -16), new Vector2(260, 20));
+        storeTabBtn = Tab(top.rectTransform, "STORE", 420, out storeTabLine);
+        libraryTabBtn = Tab(top.rectTransform, "LIBRARY", 570, out libraryTabLine);
 
         var pill = UIFactory.Panel("Wallet", top.transform, new Color(1f, 1f, 1f, 0.08f));
         pill.sprite = Round();
@@ -89,21 +99,19 @@ public partial class PCDesktop
         walletText = UIFactory.Text("Money", pill.transform, 20, Color.white, TextAlignmentOptions.Center);
         UIFactory.Fill(walletText.rectTransform);
 
-        storeMessage = UIFactory.Text("Message", c, 20, new Color32(255, 200, 90, 255), TextAlignmentOptions.Center);
-        UIFactory.Place(storeMessage.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 12), new Vector2(900, 30));
 
         // Store page: a featured strip and a grid of game cards.
         storePage = UIFactory.Rect("Store", c);
         UIFactory.Fill(storePage, 0, 0, 64, 0);
         var head = UIFactory.Text("Heading", storePage, 22, new Color(1f, 1f, 1f, 0.85f), TextAlignmentOptions.MidlineLeft);
-        head.text = "<b>FEATURED & RECOMMENDED</b>";
-        UIFactory.Place(head.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(30, -14), new Vector2(600, 34));
+        head.text = "<b>FEATURED GAMES</b>  <color=#FFFFFF80><size=16>buy a game and it installs to your desktop</size></color>";
+        UIFactory.Place(head.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(30, -10), new Vector2(900, 34));
         var shown = System.Array.FindAll(Catalogue, g => g.price > 0f);
-        const float cardW = 400f, cardH = 248f, gap = 22f;
+        const float cardW = 400f, cardH = 222f, gap = 18f;
         for (int i = 0; i < shown.Length; i++)
         {
             int col = i % 3, row = i / 3;
-            var pos = new Vector2((col - 1) * (cardW + gap), -86 - row * (cardH + gap) - cardH * 0.5f);
+            var pos = new Vector2((col - 1) * (cardW + gap), -56 - row * (cardH + gap) - cardH * 0.5f);
             storeCards.Add(Card(shown[i], pos, new Vector2(cardW, cardH)));
         }
 
@@ -120,7 +128,7 @@ public partial class PCDesktop
         sideHead.text = "<b>YOUR GAMES</b>";
         UIFactory.Place(sideHead.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(20, -10), new Vector2(280, 30));
         libList = UIFactory.Rect("List", side.transform);
-        UIFactory.Fill(libList, 0, 0, 46, 0);
+        UIFactory.Fill(libList, 0, 0, 46, 40);
 
         libArt = UIFactory.Panel("Art", libraryPage, Color.black);
         libArt.rectTransform.anchorMin = new Vector2(0f, 1f);
@@ -150,6 +158,10 @@ public partial class PCDesktop
         libInfo.rectTransform.offsetMin = new Vector2(356f, -560f);
         libInfo.rectTransform.offsetMax = new Vector2(-36f, -410f);
 
+        var strip = UIFactory.Panel("Message bar", c, new Color32(12, 15, 22, 235));
+        UIFactory.Place(strip.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(big.x, 40));
+        storeMessage = UIFactory.Text("Message", strip.transform, 18, new Color32(255, 200, 90, 255), TextAlignmentOptions.Center);
+        UIFactory.Fill(storeMessage.rectTransform, 20, 20, 0, 0);
         Wallet.Changed += RefreshStore;
         RefreshStore();
     }
@@ -175,7 +187,7 @@ public partial class PCDesktop
         var bg = UIFactory.Panel("Card", card.rt, StorePanel);
         UIFactory.Fill(bg.rectTransform);
 
-        var art = Cover(card.rt, g, new Vector2(size.x, size.y - 74f), 34);
+        var art = Cover(card.rt, g, new Vector2(size.x, size.y - 72f), 32);
         art.anchorMin = art.anchorMax = new Vector2(0.5f, 1f);
         art.pivot = new Vector2(0.5f, 1f);
         art.anchoredPosition = Vector2.zero;
@@ -312,7 +324,7 @@ public partial class PCDesktop
             libPlayText.text = "PLAY";
             libPlay.GetComponent<Image>().color = Over(libPlay) ? new Color32(140, 230, 80, 255) : StoreGreen;
             libInfo.text = $"<b>{g.genre}</b>\n{g.tagline}\n\n" + (playable
-                ? "<color=#66C0FF>Installed.</color> Ranked matches start at 4:00 PM - PLAY opens the launcher."
+                ? "<color=#66C0FF>Installed.</color> Ranked matches start at " + (pc && pc.Match ? pc.Match.StartTimeText : "4:00 PM") + " - PLAY opens the launcher."
                 : "<color=#66C0FF>Installed.</color> Game modes for this one are still being made.");
         }
     }
@@ -340,7 +352,7 @@ public partial class PCDesktop
 
     void Buy(StoreGame g)
     {
-        if (!Wallet.Spend(g.price))
+        if (!Wallet.Pay(g.price, "Pixel Vault - " + Title(g.title), Wallet.Category.Purchase))
         {
             Message($"Not enough money - {g.title} costs {Wallet.Format(g.price)}, you have {Wallet.MoneyText}.", new Color32(255, 110, 110, 255));
             return;
@@ -369,7 +381,7 @@ public partial class PCDesktop
     void AddGameIcon(StoreGame g)
     {
         if (g == null || g.id == "arena" || icons.Exists(i => i.id == "vapor:" + g.id)) return;
-        string text = $"{g.title}\n\n{g.tagline}\n\n<size=70%>Installed from Vapor. This game's modes are still being made.</size>";
+        string text = $"{g.title}\n\n{g.tagline}\n\n<size=70%>Installed from Pixel Vault. This game's modes are still being made.</size>";
         AddIcon("vapor:" + g.id, Title(g.title), text, r =>
         {
             Shape(r, g.b, Vector2.zero, new Vector2(60, 60), true);
@@ -381,6 +393,18 @@ public partial class PCDesktop
         if (windowLayer) icons[icons.Count - 1].rt.SetSiblingIndex(windowLayer.GetSiblingIndex()); // under the windows
     }
 
+    /// <summary>A little game controller (the app's logo).</summary>
+    static void DrawPad(RectTransform r, float s, Color body, Color accent)
+    {
+        Dot(r, body, new Vector2(-17, -9) * s, 24 * s);
+        Dot(r, body, new Vector2(17, -9) * s, 24 * s);
+        Shape(r, body, Vector2.zero, new Vector2(56, 30) * s, true);
+        Shape(r, Color.white, new Vector2(-14, 1) * s, new Vector2(14, 4) * s);
+        Shape(r, Color.white, new Vector2(-14, 1) * s, new Vector2(4, 14) * s);
+        Dot(r, accent, new Vector2(12, 5) * s, 7 * s);
+        Dot(r, new Color32(255, 90, 180, 255), new Vector2(19, -2) * s, 7 * s);
+    }
+
     static string Initials(string title)
     {
         var parts = title.Split(' ');
@@ -389,5 +413,5 @@ public partial class PCDesktop
 
     static string Title(string upper) => System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(upper.ToLowerInvariant());
 
-    void OnDestroy() => Wallet.Changed -= RefreshStore;
+    void OnDestroy() { Wallet.Changed -= RefreshStore; Wallet.Changed -= MarkBankDirty; Shop.Changed -= MarkShopDirty; Mail.Changed -= MarkMailDirty; ClipHub.Changed -= MarkClipHubDirty; Shop.Changed -= MarkLiveDirty; LiveStream.Changed -= MarkLiveDirty; ClipsDestroy(); }
 }

@@ -109,6 +109,23 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     NavMeshPath path, testPath;
     bool ready;
     float nextMischief, nextPet, nextWord, nextKeyMash;
+
+    // automatic cat feeder (ShopNest gadget): go and eat, then stay calm for a while
+    float calmUntil;
+    bool feedCall;
+    Vector3 feedSpot, feedBowl;
+
+    /// <summary>True while the cat is full and calm after eating (no mischief).</summary>
+    public bool Calm => Time.time < calmUntil;
+
+    /// <summary>The cat feeder dropped some food: go and eat at 'standSpot' (facing the bowl), then stay calm for 'calmSeconds'.</summary>
+    public void CallToFeeder(Vector3 standSpot, Vector3 bowl, float calmSeconds)
+    {
+        feedSpot = standSpot;
+        feedBowl = bowl;
+        feedCall = true;
+        calmUntil = Mathf.Max(calmUntil, Time.time + calmSeconds);
+    }
     float crouch, crouchTarget, loaf, loafTarget, hop, wiggle, purr, headWeight;
 
     // jumping on/off furniture
@@ -543,11 +560,22 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     {
         while (true)
         {
+            if (feedCall)
+            {
+                feedCall = false;
+                yield return EatAtFeeder();
+                continue;
+            }
+
             if (Time.time >= nextMischief)
             {
-                nextMischief = Time.time + Random.Range(timeBetweenMischief.x, timeBetweenMischief.y);
-                var trouble = PickMischief();
-                if (trouble != null) { yield return trouble; continue; }
+                if (Calm) nextMischief = calmUntil + Random.Range(4f, 12f); // full and sleepy: no trouble for now
+                else
+                {
+                    nextMischief = Time.time + Random.Range(timeBetweenMischief.x, timeBetweenMischief.y);
+                    var trouble = PickMischief();
+                    if (trouble != null) { yield return trouble; continue; }
+                }
             }
 
             float r = Random.value;
@@ -569,6 +597,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         foreach (var item in items)
         {
             if (!Available(item) || !CanGetTo(item)) continue;
+            if (item.type == ItemType.Remote && Shop.IsInstalled(Shop.RemoteHolder)) continue; // the remote holder keeps it safe
             if (stealable.Contains(item.type))
             {
                 float score = (item.type == ItemType.Remote && tvBlaring ? 6f : 1f) * Random.Range(0.5f, 1.5f);
@@ -588,6 +617,23 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             if (score > bestScore) { bestScore = score; best = SitOnKeyboard(homework); }
         }
         return best;
+    }
+
+    /// <summary>Trots over to the feeder's bowl and eats happily (the calm period runs from when the food dropped).</summary>
+    IEnumerator EatAtFeeder()
+    {
+        mood = Mood.Walking;
+        yield return WalkTo(feedSpot, walkSpeed * 1.6f, 0.1f, 25f);
+        if (Flat(transform.position - feedSpot).magnitude > 0.7f * Size) yield break; // couldn't get there
+        yield return Face(feedBowl, 0.4f);
+
+        mood = Mood.Purring;
+        crouchTarget = 0.7f; // head down in the bowl
+        nextWord = 0f; // (it purrs while it eats)
+        yield return new WaitForSeconds(9f);
+        crouchTarget = 0f;
+        mood = Mood.Idle;
+        yield return Idle(Random.Range(3f, 5f));
     }
 
     IEnumerator Steal(Carryable item)

@@ -12,7 +12,7 @@ public static class Wallpaper
     {
         get
         {
-            if (!texture) texture = Paint(960, 540);
+            if (!texture) texture = PcSketch.PaperWallpaper;
             return texture;
         }
     }

@@ -80,6 +80,26 @@ public class DayManager : MonoBehaviour
     {
         Instance = this;
         TaskBase.Ended += OnTaskEnded;
+        ApplyCampaign();
+    }
+
+    /// <summary>The week campaign decides when Mom gets home and how long the day lasts (Friday: early). Also moves the day on.</summary>
+    void ApplyCampaign()
+    {
+        Campaign.BeginDay(gameObject.scene);
+        var rules = Campaign.Today;
+        endHour = rules.momHomeHour;
+        if (rules.realMinutes > 0f) realMinutes = rules.realMinutes;
+        if (endHour < 17.99f)
+        {
+            // Mom's "on my way" texts move with her arrival.
+            float shift = 18f - endHour;
+            foreach (var t in texts)
+            {
+                if (t.hour >= 17f) t.hour -= shift;
+                if (t.message != null) t.message = t.message.Replace("Home at 6.", "Home at " + Campaign.HourText(endHour) + ".");
+            }
+        }
     }
 
     void OnDestroy()
@@ -110,7 +130,7 @@ public class DayManager : MonoBehaviour
         if (PauseMenu.IsPaused) return;
         if (State == Phase.Report)
         {
-            if (Input.GetKeyDown(KeyCode.R)) PlayAgain();
+            if (Input.GetKeyDown(KeyCode.R) && !CampaignUI.SummaryOpen) PlayAgain();
             return;
         }
 
@@ -210,7 +230,16 @@ public class DayManager : MonoBehaviour
         foreach (var c in FindObjectsOfType<PlayerCam>()) c.enabled = false;
     }
 
-    void PlayAgain() => RestartDay();
+    /// <summary>R on the report card: the next day - or, after Friday, the week summary (its buttons start the next week).</summary>
+    void PlayAgain()
+    {
+        if (Campaign.IsFriday && Campaign.DayFinished)
+        {
+            var runtime = CampaignRuntime.Instance;
+            if (runtime) { runtime.ShowWeekSummary(); return; }
+        }
+        RestartDay();
+    }
 
     /// <summary>Starts the day over (reloads the scene).</summary>
     public static void RestartDay()
@@ -251,6 +280,9 @@ public class DayManager : MonoBehaviour
                 where = item.transform.position,
             });
         }
+        float strict = Campaign.Today.momStrict; // Thursday's guests, Friday, harder weeks
+        if (Mathf.Abs(strict - 1f) > 0.01f)
+            foreach (var f in list) f.points = Mathf.Max(1, Mathf.RoundToInt(f.points * strict));
         return list;
     }
 
@@ -294,6 +326,23 @@ public class DayManager : MonoBehaviour
         public string match;
         public int rankPoints;
         public bool matchWon;
+        /// <summary>Dollars Mom pays for this grade (A $25, B $15, C $8, D $3, F $0).</summary>
+        public int allowance;
+        /// <summary>"Ranked match" or "Tournament"; and the right-hand text ("+85 RP" or "1st place - $150").</summary>
+        public string matchLabel = "Ranked match", matchExtra;
+    }
+
+    /// <summary>Allowance for a letter grade ("A+" counts as A).</summary>
+    public static int AllowanceFor(string grade)
+    {
+        switch (grade != null && grade.Length > 0 ? grade[0] : 'F')
+        {
+            case 'A': return 25;
+            case 'B': return 15;
+            case 'C': return 8;
+            case 'D': return 3;
+            default: return 0;
+        }
     }
 
     Report Grade()
@@ -344,6 +393,21 @@ public class DayManager : MonoBehaviour
             r.score >= 70 ? ("C", "We need to talk about this house.") :
             r.score >= 60 ? ("D", "Did a tornado come through here?") :
             ("F", "Phone. Now. You're grounded.");
+
+        r.allowance = AllowanceFor(r.grade);
+        if (r.allowance > 0) Wallet.Earn(r.allowance, $"Allowance - Mom's report card ({r.grade})", Wallet.Category.Allowance);
+        Wallet.PcBannedTomorrow = r.grade == "F"; // no streaming the next day (LiveStream.BannedToday)
+
+        bool tournament = Campaign.TournamentToday;
+        Campaign.OnDayEnded(r.grade, r.match, match ? match.Wins : 0, match ? match.Losses : 0, match && match.State != MatchTask.Phase.Waiting);
+        if (match)
+        {
+            r.matchLabel = tournament ? "Tournament" : "Ranked match";
+            var outcome = Campaign.TournamentOutcome;
+            r.matchExtra = tournament
+                ? (outcome == Campaign.TournamentResult.First ? $"1st - ${Campaign.Prize1st}" : outcome == Campaign.TournamentResult.Second ? $"2nd - ${Campaign.Prize2nd}" : "no prize")
+                : $"{(r.rankPoints >= 0 ? "+" : "")}{r.rankPoints} RP";
+        }
         return r;
     }
 }

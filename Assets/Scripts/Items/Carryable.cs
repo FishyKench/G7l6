@@ -8,6 +8,7 @@ public enum ItemType
     Mop,
     Bucket,
     CleanClothes,
+    TrashBag,
 }
 
 /// <summary>

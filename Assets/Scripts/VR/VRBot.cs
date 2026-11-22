@@ -58,6 +58,9 @@ public class VRBot : VRFighter
     public VRRole Role { get; private set; } = VRRole.Assault;
     public bool Blinded => Time.time < blindUntil;
     bool Sliding => Time.time < slideUntil;
+    /// <summary>For the replay recorder.</summary>
+    public bool IsCrouched => crouched;
+    public bool IsSliding => Sliding;
     int fragsPerLife = 1, flashesPerLife = 1, frags, flashes;
     float blindUntil, slideUntil, slideReady, fleeUntil, nextNade, perchUntil;
     bool slideEnding, hasPerch, flankDone;

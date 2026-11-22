@@ -63,6 +63,7 @@ public class VRGrenade : MonoBehaviour
         g.blink.intensity = 0f;
         g.blink.shadows = LightShadows.None;
         Live.Add(g);
+        ReplayRecorder.Throw(thrower, from, kind);
         return g;
     }
 
@@ -90,6 +91,7 @@ public class VRGrenade : MonoBehaviour
     {
         Vector3 at = transform.position + Vector3.up * 0.15f;
         Live.Remove(this);
+        ReplayRecorder.Boom(kind, at);
         if (kind == Kind.Frag) Frag(at); else Flash(at);
         Destroy(gameObject);
     }

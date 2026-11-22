@@ -39,6 +39,7 @@ public class MomInspector : MonoBehaviour
         go.transform.position = start;
         var mom = go.AddComponent<MomInspector>();
         mom.day = day;
+        mom.walkSpeed *= Campaign.Today.momSpeed; // Friday: she is in a hurry
         mom.font = GameHUD.Instance ? GameHUD.Instance.font : null;
         mom.BuildFigure(layout.scale);
         return mom;

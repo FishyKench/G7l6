@@ -169,11 +169,26 @@ public class TvTask : TaskBase, IInteractable, IPromptProvider
         Destroy(m);
     }
 
-    protected override void OnActivated() => SetStatic(true);
+    protected override void OnActivated() { toldHeadphones = false; SetStatic(true); }
 
     protected override void TaskUpdate()
     {
-        if (Stress) Stress.AddStress(stressPerSecond * Time.deltaTime);
+        if (Stress) Stress.AddStress(stressPerSecond * Time.deltaTime * HeadphoneFactor());
+    }
+
+    bool toldHeadphones;
+
+    /// <summary>Noise-cancelling headphones: the static stresses you far less while you are at the PC or in VR.</summary>
+    float HeadphoneFactor()
+    {
+        if (!Shop.IsInstalled(Shop.Headphones)) return 1f;
+        bool covered = VRHeadset.Worn || (GamingPC.Instance && GamingPC.Instance.Seated);
+        if (covered && !toldHeadphones)
+        {
+            toldHeadphones = true;
+            GameHUD.Toast("Headphones on: the TV static barely bothers you.", GameHUD.Good);
+        }
+        return covered ? 0.2f : 1f;
     }
 
     protected override void OnCompleted() => SetStatic(false);

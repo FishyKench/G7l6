@@ -282,11 +282,12 @@ public class GamingPC : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvider
         {
             gameStatus.text = Game == GameState.Closed ? "Not running - press PLAY" : Game == GameState.Launching ? "Launching..." : game.State switch
             {
-                MatchTask.Phase.Waiting => "Match at 4:00 PM",
+                MatchTask.Phase.Waiting => (MatchTask.IsTournament ? "Tournament at " : "Match at ") + game.StartTimeText,
                 MatchTask.Phase.Round => $"ROUND {game.RoundNumber} LIVE   {game.Wins} : {game.Losses}",
                 MatchTask.Phase.Break => $"{game.Wins} : {game.Losses}   next round soon",
                 _ => game.Wins >= game.roundsToWin ? $"VICTORY  {game.Wins} : {game.Losses}" : $"DEFEAT  {game.Wins} : {game.Losses}",
             };
+            gameTitle.text = MatchTask.IsTournament ? "TOURNAMENT" : "RANKED ARENA";
             float pulse = 0.85f + Mathf.Sin(Time.time * 3f) * 0.15f;
             gameTitle.alpha = pulse;
         }

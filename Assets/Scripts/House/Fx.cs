@@ -121,7 +121,11 @@ public static class Fx
         return src;
     }
 
-    static AudioClip click, tvOff, swish, spray, sizzle, boom, thud;
+    static AudioClip click, tvOff, swish, spray, sizzle, boom, thud, beep;
+
+    /// <summary>A short electronic double beep (gadget alerts).</summary>
+    public static AudioClip Beep => beep ? beep : beep = Make("beep", 0.34f, (t, white, low) =>
+        (t % 0.17f < 0.1f ? 1f : 0f) * Mathf.Sin(t * Mathf.PI * 2f * 1760f) * 0.32f * (1f - Mathf.Clamp01((t % 0.17f) / 0.1f) * 0.3f), 0.25f);
 
     /// <summary>A door closing: a short wooden knock.</summary>
     public static AudioClip Thud => thud ? thud : thud = Make("thud", 0.25f, (t, white, low) =>

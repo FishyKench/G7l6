@@ -57,6 +57,10 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
     /// <summary>Seconds left in the break between rounds.</summary>
     public float Timer { get; private set; }
     public int RankPoints => Wins * 25 - Losses * 20 + (State == Phase.Over && Wins >= roundsToWin ? 30 : 0);
+    /// <summary>Friday and you qualified: this match is the Tournament (see Campaign).</summary>
+    public static bool IsTournament => Campaign.TournamentToday;
+    public string StartTimeText => Campaign.HourText(matchStartHour);
+    public string MatchName => IsTournament ? "Tournament" : "Ranked match";
 
     bool inVR, warned, subscribed, saidAfk;
     float startClock, afkFor;
@@ -122,7 +126,7 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
             {
                 case Phase.Waiting:
                     float minutes = MinutesToStart();
-                    return minutes > 15f ? "Starts at 4:00 PM - launch it on your PC" : $"Starts in {Mathf.CeilToInt(minutes)} min - launch it on your PC, then the headset!";
+                    return minutes > 15f ? $"Starts at {StartTimeText} - launch it on your PC" : $"Starts in {Mathf.CeilToInt(minutes)} min - launch it on your PC, then the headset!";
                 case Phase.Round:
                     return inVR ? $"Round {RoundNumber} - {Wins}:{Losses}" : $"Round {RoundNumber} is LIVE - you're AFK!";
                 case Phase.Break:
@@ -274,10 +278,20 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
             allyDamage = allyHitDamage,
             allyReaction = allyReactTime,
         });
-        arena.Hud.Announce($"ROUND {RoundNumber}", 1.6f);
-        arena.Hud.Notice("DOMINATION - CAPTURE A, B AND C", Color.white);
+        arena.Hud.Announce(IsTournament ? $"TOURNAMENT - ROUND {RoundNumber}" : $"ROUND {RoundNumber}", 1.6f);
+        arena.Hud.Notice(IsTournament ? "TOURNAMENT - CAPTURE A, B AND C" : "DOMINATION - CAPTURE A, B AND C", Color.white);
         arena.Hud.Chat("Jay", Random.value < 0.5f ? "gl hf" : "we got this");
         if (!inVR && RoundNumber > 1) GameHUD.Toast($"Round {RoundNumber} started without you!", GameHUD.Warn);
+    }
+
+    /// <summary>Prize money when the match ends: $20 for the win + $3 for every round you took.</summary>
+    void PayPrize(bool victory)
+    {
+        if (IsTournament) return; // the tournament pays its own prize (Campaign.OnMatchOver)
+        int prize = (victory ? 20 : 0) + 3 * Wins;
+        if (prize <= 0) return;
+        Wallet.Earn(prize, $"Ranked prize - {(victory ? "won" : "lost")} {Wins}-{Losses}", Wallet.Category.Prize);
+        GameHUD.Toast($"Ranked prize: +${prize}", GameHUD.Good);
     }
 
     void OnRoundEnded(bool won)
@@ -301,6 +315,7 @@ public class MatchTask : TaskBase, IMainTask, IPromptProvider
             Text(friendName, victory ? $"GG!! {Wins}-{Losses} we're climbing" : $"{Wins}-{Losses}... bro you were barely on");
             if (victory) Complete($"Match won {Wins}-{Losses}! +{RankPoints} RP");
             else Fail($"Match lost {Wins}-{Losses}. {RankPoints} RP");
+            if (Campaign.OnMatchOver(Wins, Losses, victory)) PayPrize(victory); // false = this day's match was already counted before a restart
             if (VRArena.Instance) VRArena.Instance.Stop();
             return;
         }
