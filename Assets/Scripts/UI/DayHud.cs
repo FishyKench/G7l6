@@ -216,7 +216,8 @@ public class DayHud : MonoBehaviour
         UIFactory.Fill(dim.rectTransform);
 
         var card = UIFactory.Rect("Report Card", canvasRoot);
-        UIFactory.Place(card, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(660, 790));
+        bool matchBox = r.match != null; // the match gets its own box at the bottom: it's not part of Mom's grade
+        UIFactory.Place(card, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(660, matchBox ? 876 : 790));
         card.localRotation = Quaternion.Euler(0, 0, -1.2f);
         var group = card.gameObject.AddComponent<CanvasGroup>();
         group.alpha = 0f;
@@ -234,27 +235,21 @@ public class DayHud : MonoBehaviour
         Line(card, r.meltdown ? $"{Campaign.DayName}, week {Campaign.Week} - your stress hit the roof." : $"{Campaign.DayName}, week {Campaign.Week} - Mom got home at {Campaign.HourText(day.endHour)}.",
             17, new Color(0.13f, 0.13f, 0.16f, 0.65f), new Vector2(-70, -100), new Vector2(480, 26), TextAlignmentOptions.Left);
 
-        // Grade, circled in red marker.
-        var circle = UIFactory.Panel("Circle", card, Red);
+        // Mom's grade, circled in marker: green = good day, blue = okay, red = bad.
+        char g0 = string.IsNullOrEmpty(r.grade) ? 'F' : r.grade[0];
+        Color gradeInk = g0 == 'A' ? Green : g0 == 'B' ? new Color32(38, 110, 200, 255) : Red;
+        var circle = UIFactory.Panel("Circle", card, gradeInk);
         circle.sprite = HudArt.Get("circle_0");
         UIFactory.Place(circle.rectTransform, new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-110, -96), new Vector2(150, 150));
-        var grade = Line(circle.transform, r.grade, 82, Red, Vector2.zero, new Vector2(150, 120), TextAlignmentOptions.Center);
+        var grade = Line(circle.transform, r.grade, 82, gradeInk, Vector2.zero, new Vector2(150, 120), TextAlignmentOptions.Center);
         grade.fontStyle = FontStyles.Bold;
         UIFactory.Place(grade.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 4), new Vector2(150, 120));
-        Line(card, $"{r.score} / 100", 18, Red, new Vector2(-110, -184), new Vector2(150, 24), TextAlignmentOptions.Center, anchorRight: true);
+        Line(card, $"{r.score} / 100", 18, gradeInk, new Vector2(-110, -184), new Vector2(150, 24), TextAlignmentOptions.Center, anchorRight: true);
+        Line(card, "Mom's grade", 14, new Color(0.13f, 0.13f, 0.16f, 0.55f), new Vector2(-110, -204), new Vector2(150, 20), TextAlignmentOptions.Center, anchorRight: true);
         circle.gameObject.SetActive(false);
 
-        // The match result, stamped next to Mom's grade (it doesn't count towards it).
-        if (r.match != null)
-        {
-            var stamp = Line(card, r.matchWon ? "VICTORY" : r.match.StartsWith("LOST") ? "DEFEAT" : "NO GG", 30,
-                r.matchWon ? new Color32(40, 140, 220, 255) : Red, new Vector2(-300, -150), new Vector2(200, 40), TextAlignmentOptions.Center, anchorRight: true);
-            stamp.fontStyle = FontStyles.Bold;
-            stamp.rectTransform.localRotation = Quaternion.Euler(0, 0, 8f);
-        }
-
-        // The breakdown
-        float y = -220f;
+        // The breakdown (everything here is Mom's grade)
+        float y = -240f;
         void Row(string label, string value, int points, bool sub = false)
         {
             var c = sub ? new Color(0.13f, 0.13f, 0.16f, 0.75f) : Ink;
@@ -266,11 +261,6 @@ public class DayHud : MonoBehaviour
             y -= sub ? 25f : 31f;
         }
 
-        if (r.match != null)
-        {
-            Row(r.matchLabel, $"{r.match}  ({r.matchExtra})", 0);
-            y -= 6f;
-        }
         Row("Homework", r.homework, -r.homeworkPoints);
         Row("Chores done", r.done.ToString(), r.choreBonus);
         Row("Chores failed", r.failed.ToString(), -r.failPenalty);
@@ -297,6 +287,29 @@ public class DayHud : MonoBehaviour
         string trustText = $"{r.trust}/100" + (r.trustDelta != 0 ? $"  ({(r.trustDelta > 0 ? "+" : "")}{r.trustDelta})" : "");
         Line(card, trustText, 22, r.trustDelta > 0 ? Green : r.trustDelta < 0 ? Red : Ink, new Vector2(-48, y - 46f), new Vector2(260, 30),
             TextAlignmentOptions.MidlineRight, anchorRight: true).fontStyle = FontStyles.Bold;
+
+        // The match, in its own box: it doesn't count towards Mom's grade (and Mom's grade doesn't count towards your rank).
+        if (matchBox)
+        {
+            string m = r.match.ToUpperInvariant();
+            bool lost = m.StartsWith("LOST"), unfinished = m.StartsWith("UNFINISHED"), notPlayed = m.StartsWith("NEVER");
+            Color stampInk = r.matchWon ? new Color32(38, 110, 200, 255) : lost ? (Color)Red : unfinished ? Orange : new Color(0.13f, 0.13f, 0.16f, 0.5f);
+            var box = UIFactory.Panel("Match box", card, new Color(0.15f, 0.2f, 0.35f, 0.07f));
+            UIFactory.Place(box.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0.5f), new Vector2(0, 172), new Vector2(572, 74));
+            var edge = UIFactory.Panel("Edge", box.transform, stampInk);
+            UIFactory.Place(edge.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(5, 74));
+            Line(box.transform, $"{r.matchLabel}  -  not part of Mom's grade", 14, new Color(0.13f, 0.13f, 0.16f, 0.6f), new Vector2(20, -16), new Vector2(380, 20), TextAlignmentOptions.MidlineLeft, anchorLeft: true);
+            Line(box.transform, r.match, 20, Ink, new Vector2(20, -46), new Vector2(200, 28), TextAlignmentOptions.MidlineLeft, anchorLeft: true).fontStyle = FontStyles.Bold;
+            string extra = r.matchExtra ?? "";
+            bool extraGood = extra.StartsWith("+") || extra.StartsWith("PROMOTED") || extra.StartsWith("1st") || extra.StartsWith("2nd");
+            bool extraBad = extra.StartsWith("-") || extra.Contains("failed") || extra == "no prize";
+            if (extra.Length > 0)
+                Line(box.transform, extra, 18, extraGood ? Green : extraBad ? Red : Ink, new Vector2(186, -46), new Vector2(220, 28), TextAlignmentOptions.MidlineLeft, anchorLeft: true);
+            var stamp = Line(box.transform, r.matchWon ? "VICTORY" : lost ? "DEFEAT" : unfinished ? "UNFINISHED" : notPlayed ? "NOT PLAYED" : "", 26, stampInk,
+                new Vector2(-92, -37), new Vector2(170, 36), TextAlignmentOptions.Center, anchorRight: true);
+            stamp.fontStyle = FontStyles.Bold;
+            stamp.rectTransform.localRotation = Quaternion.Euler(0, 0, 6f);
+        }
 
         var quote = Line(card, $"\"{r.momSays}\"", 24, Ink, new Vector2(0, 92), new Vector2(560, 64), TextAlignmentOptions.Center, anchorBottom: true);
         quote.fontStyle = FontStyles.Italic;

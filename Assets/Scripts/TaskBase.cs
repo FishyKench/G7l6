@@ -84,7 +84,7 @@ public abstract class TaskBase : MonoBehaviour
 
     protected void StartDeadline(float seconds)
     {
-        TimeLeft = seconds;
+        TimeLeft = seconds * Tuning.TaskTime; // every step's timer gets the same little extra
         DeadlineRunning = seconds > 0f;
     }
 

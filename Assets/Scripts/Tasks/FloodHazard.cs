@@ -109,7 +109,7 @@ public class FloodHazard : HazardTask
             if (cursor) cursor.SetActive(holding && MopHead(out var aim) && PlaceCursor(aim, 0.25f));
             // Not being mopped: it keeps spreading and stressing you out.
             if (Stress) Stress.AddStress(stressPerSecond * dt);
-            size = Mathf.MoveTowards(size, maxDiameter, (maxDiameter - startDiameter) / Mathf.Max(0.1f, spreadTime) * dt);
+            size = Mathf.MoveTowards(size, maxDiameter, (maxDiameter - startDiameter) / Mathf.Max(0.1f, spreadTime * Tuning.HazardSpread) * dt);
             Apply(size);
             return;
         }

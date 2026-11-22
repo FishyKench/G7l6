@@ -52,6 +52,9 @@ public class VRHud : MonoBehaviour
     TextMeshProUGUI classText, pickText, nadeText, pickTitle;
     RectTransform cardsRoot;
     readonly List<(RectTransform root, Image frame, Image glow, TextMeshProUGUI name)> cards = new List<(RectTransform, Image, Image, TextMeshProUGUI)>();
+    /// <summary>The class cards are on screen (before / between rounds, or dead): you can pick a class, not walk around.</summary>
+    public static bool CardsUp { get; private set; }
+
     readonly List<(GameObject root, TextMeshProUGUI text)> cardLocks = new List<(GameObject, TextMeshProUGUI)>();
     readonly List<(Image icon, TextMeshProUGUI count, Image slot)> gear = new List<(Image, TextMeshProUGUI, Image)>();
     static Sprite rounded;
@@ -467,7 +470,7 @@ public class VRHud : MonoBehaviour
             cards.Add((card, frame, glow, name));
 
             // Locked until your rank is high enough (see VRUnlocks).
-            var lockPanel = UIFactory.Panel("Locked", card, new Color(0.02f, 0.02f, 0.05f, 0.82f));
+            var lockPanel = UIFactory.Panel("Locked", card, new Color(0.02f, 0.02f, 0.05f, 0.96f)); // covers the card: nothing shows through under LOCKED
             lockPanel.sprite = Rounded();
             lockPanel.type = Image.Type.Sliced;
             UIFactory.Fill(lockPanel.rectTransform);
@@ -538,6 +541,7 @@ public class VRHud : MonoBehaviour
         bool between = match && match.State == MatchTask.Phase.Break && arena.State != VRArena.Mode.Fighting;
         bool picking = briefing || !p.Alive || between;
         cardsRoot.gameObject.SetActive(picking);
+        CardsUp = picking;
         VRWeaponShowcase.Show(picking);
         FreeCursor(briefing && p.controlled);
         if (briefing) BriefingInput();
@@ -546,6 +550,7 @@ public class VRHud : MonoBehaviour
             pickTitle.text = briefing ? $"CHOOSE YOUR CLASS  <color=#5AF0DC>{Mathf.CeilToInt(arena.BriefingLeft)}</color>"
                            : between ? $"NEXT ROUND IN {Mathf.CeilToInt(match.Timer)}  -  CHOOSE YOUR CLASS" : "CHOOSE YOUR CLASS";
             pickText.text = briefing ? "click a class or press 1 - 4  -  the round starts when you pick"
+                          : between ? "press 1 - 4 to pick  -  you spawn with it      ESC: headset off to deal with the house (rounds start without you)"
                           : "press 1 - 4 to pick  -  you spawn with it";
             int hover = -1;
             if (briefing)
@@ -794,19 +799,20 @@ public class VRHud : MonoBehaviour
         else if (arena.State == VRArena.Mode.Fighting)
         {
             int secs = Mathf.CeilToInt(Mathf.Max(0f, arena.TimeLeft));
-            topBar.text = $"DOMINATION  -  ROUND {(match ? match.RoundNumber : 1)}  ({(match ? match.Wins : 0)}:{(match ? match.Losses : 0)})  -  {secs / 60}:{secs % 60:00}";
+            topBar.text = $"DOMINATION  -  ROUND {(match ? match.RoundNumber : 1)}  ({(match ? match.Wins : 0)}:{(match ? match.Losses : 0)})  -  " + (arena.Overtime ? "<color=#FF6A5A>OVERTIME</color>" : $"{secs / 60}:{secs % 60:00}");
             if (!p.Alive) infoLine = arena.PlayerRespawnIn > 0f ? $"RESPAWN IN {Mathf.CeilToInt(arena.PlayerRespawnIn)}" : "";
         }
         else if (arena.State == VRArena.Mode.Practice)
         {
             int secs = Mathf.CeilToInt(Mathf.Max(0f, arena.TimeLeft));
-            topBar.text = $"WARM-UP DOMINATION (unranked)  -  {secs / 60}:{secs % 60:00}  -  KILLS: {p.Kills}  -  RANKED AT 4:00 PM";
+            topBar.text = $"WARM-UP DOMINATION (unranked)  -  " + (arena.Overtime ? "<color=#FF6A5A>OVERTIME</color>" : $"{secs / 60}:{secs % 60:00}") + $"  -  KILLS: {p.Kills}  -  RANKED AT 4:00 PM";
             if (!p.Alive && arena.PlayerRespawnIn > 0f) infoLine = $"RESPAWN IN {Mathf.CeilToInt(arena.PlayerRespawnIn)}";
         }
         else if (match && match.State == MatchTask.Phase.Break)
         {
             topBar.text = $"RANKED   {score}";
-            infoLine = $"Next round in {Mathf.CeilToInt(match.Timer)}s\n<size=75%>Take the headset off (ESC) to deal with the house - rounds start without you</size>";
+            // (the class cards are up now: their title has the countdown and the line under them the ESC hint - nothing over the cards)
+            infoLine = CardsUp ? "" : $"Next round in {Mathf.CeilToInt(match.Timer)}s\n<size=75%>Take the headset off (ESC) to deal with the house - rounds start without you</size>";
         }
         else if (match && match.State == MatchTask.Phase.Over)
         {

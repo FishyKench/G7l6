@@ -81,7 +81,8 @@ public class Food : MonoBehaviour
         var box = gameObject.AddComponent<BoxCollider>();
         box.center = transform.InverseTransformPoint(b.center);
         box.size = new Vector3(Mathf.Max(0.05f, b.size.x), Mathf.Max(0.05f, b.size.y), Mathf.Max(0.05f, b.size.z));
-        var carry = GetComponent<Carryable>() ?? gameObject.AddComponent<Carryable>();
+        var carry = GetComponent<Carryable>();
+        if (!carry) carry = gameObject.AddComponent<Carryable>(); // (not '??': Unity's missing components aren't real nulls)
         carry.type = ItemType.Food;
         carry.hasHome = false; // made in the kitchen: its "home" would be wherever it appeared (in mid-air)
         carry.displayName = display;

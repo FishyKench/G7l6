@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 /// <summary>
@@ -78,9 +79,9 @@ public class GameManager : MonoBehaviour
         yield return new WaitForSeconds(firstTaskDelay);
         while (true)
         {
-            if (!spawningPaused && ActiveRandomTaskCount() < maxActiveTasks)
+            if (!spawningPaused && !InGracePeriod && ActiveRandomTaskCount() < Tuning.MaxActiveTasks(maxActiveTasks))
                 TryStartRandomTask();
-            yield return new WaitForSeconds(Random.Range(timeBetweenTasks.x, timeBetweenTasks.y));
+            yield return new WaitForSeconds(Random.Range(timeBetweenTasks.x, timeBetweenTasks.y) * Tuning.TaskGap);
         }
     }
 
@@ -99,8 +100,27 @@ public class GameManager : MonoBehaviour
             if (t.canStartRandomly && !t.isMainTask && !t.IsActive && t.CanStartNow && Time.time >= t.AvailableAt && Campaign.AllowRandomTask(t))
                 pool.Add(t);
 
-        if (pool.Count > 0)
-            StartTask(pool[Random.Range(0, pool.Count)]);
+        // TVs: only one at a time, and a break after one before the next
+        if (Time.time < nextTvAt || tasks.Any(t => t.IsActive && t is TvTask)) pool.RemoveAll(t => t is TvTask);
+        if (pool.Count == 0) return;
+        // Pick a KIND of task first, then which one: the three TVs together come up as often as the laundry, not three times as often.
+        var kinds = pool.GroupBy(t => t.GetType()).ToList();
+        var kind = kinds[Random.Range(0, kinds.Count)].ToList();
+        var pick = kind[Random.Range(0, kind.Count)];
+        if (pick is TvTask) nextTvAt = Time.time + Tuning.TvBreak;
+        StartTask(pick);
+    }
+
+    float nextTvAt;
+
+    /// <summary>The first half hour of the day (game clock): nothing pops up, you get to settle in.</summary>
+    public static bool InGracePeriod
+    {
+        get
+        {
+            var day = DayManager.Instance;
+            return day && day.State == DayManager.Phase.Day && day.Hour < day.startHour + Tuning.GraceMinutes / 60f;
+        }
     }
 
     /// <summary>Active tasks in HUD order: main tasks first, then hazards, then oldest first.</summary>

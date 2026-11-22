@@ -78,7 +78,7 @@ public class GameHUD : MonoBehaviour
         {
             vitalsLooked = true;
             foreach (var t in GetComponentsInChildren<Transform>(true))
-                if (t.name == "Vitals") { vitals = t.GetComponent<CanvasGroup>() ?? t.gameObject.AddComponent<CanvasGroup>(); break; }
+                if (t.name == "Vitals") { vitals = t.GetComponent<CanvasGroup>(); if (!vitals) vitals = t.gameObject.AddComponent<CanvasGroup>(); break; }
         }
         if (!vitals) return;
         float stress = StressManager.Instance ? StressManager.Instance.Normalized : 0f;

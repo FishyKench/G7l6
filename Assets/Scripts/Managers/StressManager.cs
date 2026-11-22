@@ -28,7 +28,7 @@ public class StressManager : MonoBehaviour
     public void AddStress(float amount)
     {
         if (amount > 0f) lastGain = Time.time;
-        currentStress = Mathf.Clamp(currentStress + amount * gainMultiplier, 0, maxStress);
+        currentStress = Mathf.Clamp(currentStress + amount * gainMultiplier * Tuning.StressGain, 0, maxStress);
         targetFillAmount = Normalized;
 
         if (currentStress >= maxStress && !maxedOut)
@@ -49,7 +49,7 @@ public class StressManager : MonoBehaviour
     {
         // Calm down slowly when nothing has stressed you for a couple of seconds.
         if (calmRecoveryPerSecond > 0f && currentStress > 0f && Time.time - lastGain > 2f)
-            RemoveStress(calmRecoveryPerSecond * Time.deltaTime);
+            RemoveStress(calmRecoveryPerSecond * Tuning.StressRecovery * Time.deltaTime);
         UpdateStressUI();
     }
 

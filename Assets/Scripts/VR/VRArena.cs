@@ -39,6 +39,9 @@ public class VRArena : MonoBehaviour
     /// <summary>The whole arena's bounds (found when it loaded).</summary>
     public Bounds AreaBounds => area;
     public float TimeLeft { get; private set; }
+    /// <summary>The round's clock has run out but nobody has reached the score yet.</summary>
+    public bool Overtime => TimeLeft <= 0f && (State == Mode.Fighting || State == Mode.Practice);
+    const float MaxOvertime = 60f;
     public VRPlayer Player { get; private set; }
     public VRHud Hud { get; private set; }
     public bool Ready { get; private set; }
@@ -219,7 +222,7 @@ public class VRArena : MonoBehaviour
                 var r = rivals[i];
                 var rb = AddBot(r.name, 1, EnemyColor, Spawn(spawnsB, i, 1));
                 rb.title = Rivals.TitleFor(r);
-                rb.ApplyRole(r.role, s.enemySpread * 0.68f, s.enemyFireRate, s.enemyDamage * 1.15f, s.enemyReaction * 0.7f, s.enemyAimSettle * 0.7f);
+                rb.ApplyRole(r.role, s.enemySpread * 0.68f * Tuning.EnemySpread, s.enemyFireRate, s.enemyDamage * 1.15f * Tuning.EnemyDamage, s.enemyReaction * 0.7f * Tuning.EnemyReaction, s.enemyAimSettle * 0.7f * Tuning.EnemyReaction);
                 continue;
             }
             if (names.Count == 0) names.Add("Player" + Random.Range(100, 999)); // never run out of names
@@ -227,7 +230,7 @@ public class VRArena : MonoBehaviour
             var b = AddBot(names[n], 1, EnemyColor, Spawn(spawnsB, i, 1));
             names.RemoveAt(n);
             // The enemy team is the elite one: tighter aim, quicker on the trigger, a bit more damage.
-            b.ApplyRole(EnemyRoles[i % EnemyRoles.Length], s.enemySpread * 0.8f, s.enemyFireRate, s.enemyDamage * 1.1f, s.enemyReaction * 0.8f, s.enemyAimSettle * 0.8f);
+            b.ApplyRole(EnemyRoles[i % EnemyRoles.Length], s.enemySpread * 0.8f * Tuning.EnemySpread, s.enemyFireRate, s.enemyDamage * 1.1f * Tuning.EnemyDamage, s.enemyReaction * 0.8f * Tuning.EnemyReaction, s.enemyAimSettle * 0.8f * Tuning.EnemyReaction);
         }
         foreach (var g in VRGrenade.Live.ToArray()) if (g) Destroy(g.gameObject);
         TimeLeft = s.seconds;
@@ -351,12 +354,15 @@ public class VRArena : MonoBehaviour
             f.Tick(dt);
             if (f.Owner >= 0) held[f.Owner]++;
         }
-        for (int t = 0; t < 2; t++) Score[t] = Mathf.Min(ScoreLimit, Score[t] + held[t] * pointsPerFlag * dt);
+        // Overtime: the clock's run out but nobody has the score yet - points come twice as fast until someone does.
+        float rate = pointsPerFlag * (Overtime ? 2f : 1f);
+        for (int t = 0; t < 2; t++) Score[t] = Mathf.Min(ScoreLimit, Score[t] + held[t] * rate * dt);
 
         ordersIn -= dt;
         if (ordersIn <= 0f) { ordersIn = 2f; GiveOrders(); }
 
-        if (Score[0] < ScoreLimit && Score[1] < ScoreLimit && TimeLeft > 0f) return;
+        // A round is won by reaching the score - the clock only starts overtime (with a hard stop if nobody holds anything).
+        if (Score[0] < ScoreLimit && Score[1] < ScoreLimit && TimeLeft > -MaxOvertime) return;
         bool tie = Mathf.Abs(Score[0] - Score[1]) < 0.5f;
         bool won = tie ? held[0] > held[1] || (held[0] == held[1] && Random.value < 0.5f) : Score[0] > Score[1];
         LiveStream.OnRoundEnd(won);
@@ -466,7 +472,7 @@ public class VRArena : MonoBehaviour
             foreach (var f in flags) if (Threatened(f)) Add(f, f == mid ? 4 : 2, false);
             VRFlag primary = targets.Count > 0 ? targets[0] : null;
             // B (the middle) is the point that wins games: most of the team goes for it whenever it isn't ours.
-            int forPrimary = primary == mid ? Mathf.Max(4, Mathf.CeilToInt(squad.Count * 0.6f)) : targets.Count == 1 ? 4 : 3;
+            int forPrimary = primary == mid ? Mathf.Max(4, Mathf.CeilToInt(squad.Count * (team == 1 ? 0.75f : 0.6f))) : targets.Count == 1 ? 4 : 3;
             if (primary) Add(primary, lateAndLosing ? squad.Count : forPrimary, true);
             if (targets.Count > 1 && !lateAndLosing) Add(targets[1], 2, true);
             foreach (var f in flags) if (f.Owner == team && !Threatened(f)) Add(f, f == mid ? 3 : 1, false);

@@ -286,7 +286,7 @@ public class PauseMenu : MonoBehaviour
             int total = Mathf.Max(1, homework.pagesRequired);
             homeworkDone = !homework.IsActive && homework.LastSucceeded;
             int typed = homeworkDone ? total : Mathf.FloorToInt(homework.Progress * total + 0.0001f);
-            pages = $"{typed}/{total} pages";
+            pages = $"{typed}/{total} questions";
         }
         float stress = StressManager.Instance ? StressManager.Instance.Normalized : 0f;
 

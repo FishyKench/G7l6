@@ -159,6 +159,16 @@ public partial class PCDesktop : MonoBehaviour
         if (focused != null) { focused = null; pc.FocusChanged(); } // clicked the wallpaper: the desktop is in front
     }
 
+    /// <summary>Where the PC's own mouse pointer is over a piece of UI, in that piece's local space (true if it's on it).</summary>
+    public bool PointerLocal(RectTransform rt, out Vector2 local)
+    {
+        local = default;
+        if (!rt || !root || !root.activeSelf || !rt.gameObject.activeInHierarchy) return false;
+        Vector3 world = screen.TransformPoint(new Vector3(mouse.x - ScreenW * 0.5f, mouse.y - ScreenH * 0.5f, 0f));
+        local = rt.InverseTransformPoint(world);
+        return rt.rect.Contains(local);
+    }
+
     bool Over(RectTransform rt)
     {
         if (!rt || !rt.gameObject.activeInHierarchy) return false;

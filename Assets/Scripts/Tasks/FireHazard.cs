@@ -126,7 +126,7 @@ public class FireHazard : HazardTask
             for (int i = 0; i < extraFlames; i++) SpreadFlame(false);
         }
         if (fireLight) fireLight.enabled = true;
-        spreadTimer = spreadEvery;
+        spreadTimer = spreadEvery * Tuning.HazardSpread;
     }
 
     protected override void TaskUpdate()
@@ -168,7 +168,7 @@ public class FireHazard : HazardTask
         if (!anyHit) spreadTimer -= dt;
         if (spreadTimer <= 0f)
         {
-            spreadTimer = spreadEvery;
+            spreadTimer = spreadEvery * Tuning.HazardSpread;
             if (Alive < maxFlames && SpreadFlame(true)) GameHUD.Toast("The fire's spreading!", GameHUD.Warn);
         }
     }

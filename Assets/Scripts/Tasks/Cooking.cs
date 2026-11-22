@@ -174,7 +174,8 @@ public class Cooking : TaskBase, IPromptProvider
         }
         if (kind == KitchenStation.Kind.Sink)
             foreach (var bs in found.GetComponentsInChildren<BucketSink>(true)) Destroy(bs); // the station empties buckets too
-        var st = found.gameObject.GetComponent<KitchenStation>() ?? found.gameObject.AddComponent<KitchenStation>();
+        var st = found.gameObject.GetComponent<KitchenStation>();
+        if (!st) st = found.gameObject.AddComponent<KitchenStation>();
         st.kind = kind;
         stations[kind.ToString()] = st;
         // The highlight outline reads the mesh: only when the model allows it (the kitchen tool switches that on).
@@ -197,7 +198,7 @@ public class Cooking : TaskBase, IPromptProvider
         base.Update();
         if (PauseMenu.IsPaused || Today == null) return;
         var day = DayManager.Instance;
-        if (!started && day && day.State == DayManager.Phase.Day && day.Hour >= startHour)
+        if (!started && day && day.State == DayManager.Phase.Day && day.Hour >= startHour && !GameManager.InGracePeriod)
         {
             started = true;
             Activate();
@@ -614,6 +615,17 @@ public class Cooking : TaskBase, IPromptProvider
 
     /// <summary>The pot / pan / bowl comes off the cookware counter (the one on show there goes) and into your hands.</summary>
     Food fetchedVessel;
+
+    /// <summary>Where dinner is: the pot / pan / bowl if it's out, otherwise the stove (Mom goes there to have a look).</summary>
+    public Vector3? DinnerSpot
+    {
+        get
+        {
+            if (vesselOnStove) return vesselOnStove.transform.position;
+            if (stations.TryGetValue(KitchenStation.Kind.Stove.ToString(), out var st) && st) return st.transform.position;
+            return null;
+        }
+    }
 
     /// <summary>
     /// The pot / pan / bowl put down (dropped with G) on its own spot - the bowl on the island, the pan or the filled pot on the

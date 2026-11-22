@@ -275,7 +275,7 @@ public class GamingPC : MonoBehaviour, IMainTask, IMainTaskHost, IPromptProvider
             int total = Mathf.Max(1, homework.pagesRequired);
             bool done = !homework.IsActive && homework.LastSucceeded;
             int typed = done ? total : Mathf.Clamp(Mathf.FloorToInt(homework.Progress * total) + 1, 1, total);
-            docPage.text = done ? "Done!" : $"Page {typed} of {total}";
+            docPage.text = done ? "Done!" : $"Question {typed} of {total}";
             docBar.anchorMax = new Vector2(done ? 1f : homework.Progress, 1f);
         }
         if (show == "game" && game)

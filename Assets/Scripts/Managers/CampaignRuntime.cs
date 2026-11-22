@@ -73,7 +73,7 @@ public class CampaignRuntime : MonoBehaviour
         if (cat && rules.catMischiefMult > 0.01f)
             cat.timeBetweenMischief = new Vector2(cat.timeBetweenMischief.x / rules.catMischiefMult, cat.timeBetweenMischief.y / rules.catMischiefMult);
 
-        foreach (var homework in FindObjectsOfType<TypingTask>(true)) homework.pagesRequired = Mathf.Max(1, rules.homeworkPages);
+        foreach (var homework in FindObjectsOfType<TypingTask>(true)) homework.pagesRequired = Mathf.Max(1, Tuning.HomeworkQuestions); // maths questions now
         foreach (var oven in FindObjectsOfType<OvenTask>(true)) oven.catchFireAt *= rules.ovenBurnMult;
         foreach (var leak in FindObjectsOfType<CeilingLeakTask>(true)) leak.puddleGrowTime *= rules.leakGrowMult;
 
@@ -142,7 +142,7 @@ public class CampaignRuntime : MonoBehaviour
             case 2:
                 if (Campaign.Once("wed"))
                     Mail.Send("Mom", "Extra homework today",
-                        $"Sweetie, your teacher sent {rules.homeworkPages} pages of homework this time. Please get it all done before I get home at {home}.\n\nLove, Mom",
+                        $"Sweetie, your teacher sent some hard maths homework this time. Please get it all done before I get home at {home}.\n\nLove, Mom",
                         Mail.Kind.Info);
                 break;
             case 3:

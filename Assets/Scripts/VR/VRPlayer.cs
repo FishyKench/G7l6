@@ -337,19 +337,18 @@ public class VRPlayer : VRFighter
         gunHolder.gameObject.SetActive(true);
         Regenerate(dt);
         bool briefing = VRArena.Instance && VRArena.Instance.State == VRArena.Mode.Briefing;
+        bool frozen = briefing || VRHud.CardsUp; // choosing a class: you stand still (and don't shoot or throw)
         if (controlled && !briefing)
-        {
             for (int i = 0; i < VRLoadout.All.Length; i++)
                 if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i)) ChooseRole(VRLoadout.All[i]);
-            Throwing(dt);
-        }
+        if (controlled && !frozen) Throwing(dt);
 
         if (vaulting) { VaultStep(dt); CameraFeel(dt, 0f, true); return; }
 
         bool grounded = cc.isGrounded;
         Vector2 input = Vector2.zero;
         bool aimHeld = false, sprintHeld = false, jump = false, slide = false;
-        if (controlled && !briefing)
+        if (controlled && !frozen)
         {
             if (sensitivity < 0f) sensitivity = HouseSensitivity();
             float sens = sensitivity * Mathf.Lerp(1f, Role == VRRole.Sniper ? 0.3f : 0.55f, Aim);
@@ -423,7 +422,7 @@ public class VRPlayer : VRFighter
 
         float horizontal = Flat(velocity).magnitude;
         SpeedAmount = Mathf.Clamp01((horizontal - walkSpeed * 0.8f) / (slideSpeed - walkSpeed * 0.8f));
-        if (controlled && !briefing) Shooting(dt, horizontal > 1f);
+        if (controlled && !frozen) Shooting(dt, horizontal > 1f);
         CameraFeel(dt, input.x, nowGrounded);
     }
 

@@ -398,8 +398,11 @@ public class VRBot : VRFighter
         if (TryGrenade(arena)) return;
         MaybeSlide();
 
-        bool hurt = Health < maxHealth * (0.35f + 0.2f * (1f - aggression));
-        bool needCover = seesTarget && (hurt || Reloading) || takingCover;
+        // Close to an un-owned B (the point that decides rounds): they commit - cover only when badly hurt, reload on the move.
+        bool pushingMiddle = Objective && Objective.Owner != team && arena.Flags.Count >= 3 && Objective == arena.Flags[arena.Flags.Count / 2]
+                             && Vector3.Distance(transform.position, Objective.Position) < Objective.radius + 14f;
+        bool hurt = Health < maxHealth * (pushingMiddle ? 0.22f : 0.35f + 0.2f * (1f - aggression));
+        bool needCover = seesTarget && (hurt || Reloading && !pushingMiddle) || takingCover && !pushingMiddle;
         if (needCover && Cover(arena)) return;
 
         if (seesTarget) { Fight(arena); return; }
@@ -450,12 +453,15 @@ public class VRBot : VRFighter
         }
         // On the way to a point: don't stop for a long-range duel - keep pushing in and shoot on the move.
         bool advancing = Objective && Objective.Owner != team && !Objective.Contains(transform.position);
-        if (advancing && Health > maxHealth * 0.45f)
+        // B (the middle) is worth pushing through: they only break off when badly hurt
+        bool middle = arena.Flags.Count >= 3 && Objective == arena.Flags[arena.Flags.Count / 2];
+        if (advancing && Health > maxHealth * (middle ? 0.25f : 0.45f))
         {
             Doing = $"pushing {Objective.letter} under fire";
             SetCrouch(false);
             if (spotFor != Objective) { spotFor = Objective; spotPickedAt = Time.time; objectiveSpot = Objective.RandomSpot(0.6f); }
-            Vector3 pushTo = !flankDone && flankFor == Objective ? flankPoint : objectiveSpot;
+            bool close = Vector3.Distance(transform.position, Objective.Position) < Objective.radius + 10f; // close: straight in, no more flanking
+            Vector3 pushTo = !close && !flankDone && flankFor == Objective ? flankPoint : objectiveSpot;
             Go(pushTo, Role == VRRole.SMG ? RunSpeed : CombatSpeed + 1.4f);
             return;
         }

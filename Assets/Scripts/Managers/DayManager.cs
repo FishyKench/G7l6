@@ -129,6 +129,7 @@ public class DayManager : MonoBehaviour
     {
         Time.timeScale = 1f;
         hud = gameObject.AddComponent<DayHud>();
+        MomNav.Bake(); // Mom's walking map, baked in the background long before 6 PM
     }
 
     void OnTaskEnded(TaskBase task, bool success)
@@ -151,8 +152,7 @@ public class DayManager : MonoBehaviour
             return;
         }
 
-        if (debugKeys && Input.GetKeyDown(skipToEveningKey) && State == Phase.Day)
-            elapsed = Mathf.Max(elapsed, (17.97f - startHour) / (endHour - startHour) * realMinutes * 60f);
+        if (debugKeys && Input.GetKeyDown(skipToEveningKey)) SkipToEvening();
 
         UpdatePanic();
         if (State != Phase.Day) return;
@@ -188,8 +188,15 @@ public class DayManager : MonoBehaviour
 
     // ------------------------------------------------------------------ the end of the day
 
+    /// <summary>Debug (F8 / the Mom debug panel): the clock jumps to just before 6 PM.</summary>
+    public void SkipToEvening()
+    {
+        if (State == Phase.Day) elapsed = Mathf.Max(elapsed, (17.97f - startHour) / (endHour - startHour) * realMinutes * 60f);
+    }
+
     IEnumerator MomComesHome()
     {
+        foreach (var other in FindObjectsOfType<MomInspector>()) Destroy(other.gameObject); // (a Mom from the debug panel)
         State = Phase.MomHome;
         if (GameManager.Instance) GameManager.Instance.spawningPaused = true;
         GameHUD.Toast("Mom's home!", GameHUD.Warn);
@@ -200,7 +207,13 @@ public class DayManager : MonoBehaviour
         yield return new WaitForSeconds(1.5f);
 
         Mom = MomInspector.Spawn(this);
-        if (Mom) yield return Mom.Inspect();
+        if (Mom)
+        {
+            yield return Mom.Inspect();
+            // a bad day (below a B): she smacks you before the report card
+            string g = PreviewGrade();
+            if (!Meltdown && g.Length > 0 && (g[0] == 'C' || g[0] == 'D' || g[0] == 'F')) yield return Mom.Smack();
+        }
         else
         {
             // No house to walk: she just takes one look around.
@@ -367,24 +380,34 @@ public class DayManager : MonoBehaviour
         }
     }
 
+    /// <summary>The grade as it stands right now, nothing paid or saved (Mom decides on the spot whether you've earned a smack).</summary>
+    public string PreviewGrade() => Score(out _, out _).grade;
+
     Report Grade()
+    {
+        var r = Score(out var homework, out var match);
+        return Settle(r, homework, match);
+    }
+
+    /// <summary>Works out the report card - no side effects (nothing paid, nothing saved).</summary>
+    Report Score(out TypingTask homework, out MatchTask match)
     {
         var r = new Report { meltdown = Meltdown, found = new List<Finding>(caught) };
 
-        var homework = FindObjectOfType<TypingTask>();
+        homework = FindObjectOfType<TypingTask>();
         if (homework)
         {
             int pages = Mathf.Max(1, homework.pagesRequired);
             bool finished = !homework.IsActive && homework.LastSucceeded;
             int typed = finished ? pages : Mathf.Clamp(Mathf.FloorToInt(homework.Progress * pages + 0.0001f), 0, pages);
-            r.homework = $"{typed}/{pages} pages";
+            r.homework = $"{typed}/{pages} questions";
             // If Mom saw the unfinished homework it's already in 'found'; otherwise count it here.
             bool alreadyFound = r.found.Exists(f => f.what == "Homework not finished");
             r.homeworkPoints = finished || alreadyFound ? 0 : Mathf.RoundToInt(30f * (1f - (float)typed / pages));
         }
         else r.homework = "-";
 
-        var match = FindObjectOfType<MatchTask>();
+        match = FindObjectOfType<MatchTask>();
         if (match)
         {
             r.rankPoints = match.RankPoints;
@@ -419,6 +442,12 @@ public class DayManager : MonoBehaviour
             r.score >= 60 ? ("D", "Did a tornado come through here?") :
             ("F", "Phone. Now. You're grounded.");
 
+        return r;
+    }
+
+    /// <summary>The report card's consequences: allowance, tomorrow's PC ban, Mom's trust, the campaign's record.</summary>
+    Report Settle(Report r, TypingTask homework, MatchTask match)
+    {
         r.allowance = AllowanceFor(r.grade);
         if (r.allowance > 0) Wallet.Earn(r.allowance, $"Allowance - Mom's report card ({r.grade})", Wallet.Category.Allowance);
         Wallet.PcBannedTomorrow = r.grade == "F"; // no streaming the next day (LiveStream.BannedToday)
