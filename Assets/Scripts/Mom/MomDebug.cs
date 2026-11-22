@@ -139,6 +139,12 @@ public class MomDebug : MonoBehaviour
         if (GUILayout.Button("Walk to me")) Run(m => m.WalkHere(Player().position), "");
         if (GUILayout.Button("Stop")) { StopJob(); note = ""; }
         GUILayout.EndHorizontal();
+        if (GUILayout.Button("Close every door (to watch her open them)"))
+        {
+            int n = 0;
+            foreach (var d in FindObjectsOfType<HouseDoor>()) if (d.IsOpen) { d.Close(); n++; }
+            note = $"Closed {n} door{(n == 1 ? "" : "s")}." + (mom ? $"  Mom has opened {mom.DoorsOpened} so far." : "");
+        }
 
         GUILayout.Space(6);
         GUILayout.Label("The evening", head);

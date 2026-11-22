@@ -76,7 +76,7 @@ public class MomInspector : MonoBehaviour
         agent.agentTypeID = MomNav.AgentType;
         agent.radius = MomNav.Ready ? MomNav.Radius : 0.2f;
         agent.height = 1.8f * s;
-        agent.speed = walkSpeed * houseScale;
+        agent.speed = baseSpeed = walkSpeed * houseScale;
         agent.angularSpeed = 420f;
         agent.acceleration = 10f;
         agent.stoppingDistance = 0.9f * houseScale;
@@ -97,6 +97,7 @@ public class MomInspector : MonoBehaviour
     {
         { "interact-right", 1.1f }, { "interact-left", 1.1f }, { "pick-up", 1.4f }, { "point", 1.3f },
         { "emote-no", 1.2f }, { "emote-yes", 1.0f }, { "hands-on-hips", 1.8f }, { "attack-melee-right", 1.0f },
+        { "open-push", 1.0f }, { "open-pull", 1.1f },
     };
 
     void BuildRig(float s)
@@ -261,6 +262,22 @@ public class MomInspector : MonoBehaviour
                 p.armL = new Vector3(-30f, 0f, -8f);
                 p.neck = new Vector3(14f, 0f, 0f);
                 break;
+            case "open-push": // hand on the handle, push it open
+            {
+                float reach = Ease(0f, 0.3f, u), push = Ease(0.3f, 0.65f, u);
+                p.armR = new Vector3(Mathf.Lerp(Mathf.Lerp(b.armR.x, -62f, reach), -82f, push), 0f, Mathf.Lerp(4f, -6f, push));
+                p.torso = new Vector3(Mathf.Lerp(2f, 9f, push), Mathf.Lerp(0f, -8f, reach), 0f);
+                p.neck = new Vector3(6f, 0f, 0f);
+                break;
+            }
+            case "open-pull": // hand on the handle, pull it open as she steps back
+            {
+                float reach = Ease(0f, 0.28f, u), pull = Ease(0.28f, 0.7f, u);
+                p.armR = new Vector3(Mathf.Lerp(Mathf.Lerp(b.armR.x, -66f, reach), -34f, pull), Mathf.Lerp(0f, 18f, pull), Mathf.Lerp(4f, 14f, pull));
+                p.torso = new Vector3(Mathf.Lerp(6f, -5f, pull), Mathf.Lerp(-6f, 10f, pull), 0f);
+                p.neck = new Vector3(4f, Mathf.Lerp(0f, -10f, pull), 0f);
+                break;
+            }
             case "point": // "and THAT."
                 p.armR = new Vector3(-86f, 0f, 4f);
                 p.torso = new Vector3(3f, -10f, 0f);
@@ -472,7 +489,8 @@ public class MomInspector : MonoBehaviour
         Vector3 fromYou = Flat(transform.position - player.position);
         if (fromYou.sqrMagnitude < 0.01f) fromYou = Flat(cam.transform.forward);
         Vector3 spot = player.position + fromYou.normalized * 1.05f * scale;
-        if (MomNav.Sample(spot, 1.2f * scale, out var near)) spot = near.position;
+        if (Spot(spot, true, out var near) && Vector3.Distance(Flat(near), Flat(player.position)) > 0.6f * scale) spot = near;
+        else if (MomNav.Sample(spot, 1.2f * scale, out var near2)) spot = near2.position;
         float before = agent.stoppingDistance;
         agent.stoppingDistance = 0.1f;
         yield return WalkTo(spot, Time.time + 8f);
@@ -542,6 +560,10 @@ public class MomInspector : MonoBehaviour
             last = r.name;
             Vector3 p = layout.transform.TransformPoint(new Vector3(r.rect.center.x + Random.Range(-0.25f, 0.25f) * r.rect.width,
                 r.floor * layout.storeyHeight + 0.2f, r.rect.center.y + Random.Range(-0.25f, 0.25f) * r.rect.height));
+            // only rooms she can walk to from here (not the porch outside, say)
+            var path = new NavMeshPath();
+            if (!MomNav.Sample(p, 2f * scale, out var on) || !NavMesh.CalculatePath(transform.position, on.position, MomNav.Filter, path)
+                || path.status != NavMeshPathStatus.PathComplete) { yield return null; continue; }
             Doing = "walking to " + r.name;
             yield return WalkTo(p, Time.time + 30f);
             yield return new WaitForSeconds(0.5f);
@@ -585,30 +607,180 @@ public class MomInspector : MonoBehaviour
 
     IEnumerator WalkTo(Vector3 target, float until)
     {
-        if (!agent.isOnNavMesh || !MomNav.Sample(target, 2.5f * scale, out var hit))
+        if (!agent.isOnNavMesh)
+        {
+            Teleport(target);
+            yield break;
+        }
+        // where she can really stand to look at it: same room, same floor, a way there
+        if (!Spot(target, true, out var goal) && !Spot(target, false, out goal))
         {
             Teleport(target);
             yield break;
         }
         agent.isStopped = false;
-        agent.SetDestination(hit.position);
+        agent.SetDestination(goal);
         float stuckSince = Time.time;
         Vector3 last = transform.position;
         while (!stopped && Time.time < until)
         {
             if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.05f) break;
+            // a shut door on the way: she slows down, stops in front of it and opens it
+            float toDoor = 0f;
+            var door = agent.pathPending ? null : DoorAhead(out toDoor);
+            agent.speed = door && toDoor < 1.4f * scale ? baseSpeed * 0.55f : baseSpeed;
+            if (door && toDoor < 0.6f * scale)
+            {
+                yield return OpenDoor(door);
+                agent.speed = baseSpeed;
+                stuckSince = Time.time;
+                last = transform.position;
+                continue;
+            }
             if (Vector3.Distance(transform.position, last) > 0.3f) { last = transform.position; stuckSince = Time.time; }
-            if (Time.time - stuckSince > 4f) { Teleport(hit.position); break; } // can't get there: skip ahead
+            if (Time.time - stuckSince > 4f) { Teleport(goal); break; } // can't get there: skip ahead
             yield return null;
         }
         if (agent.isOnNavMesh) agent.isStopped = true;
         // Ended up somewhere else (no path, e.g. another floor)? She gets there anyway.
-        if (!stopped && Vector3.Distance(transform.position, hit.position) > 2.5f * scale) Teleport(hit.position);
+        if (!stopped && Vector3.Distance(transform.position, goal) > 2.5f * scale) Teleport(goal);
     }
+
+    /// <summary>
+    /// The nearest spot to 'target' that's on her walking map in the same room and on the same floor - and, with 'walkable', one
+    /// she can walk to from where she is. (Just taking the nearest point of the map can pick the other side of a wall, or the floor
+    /// below, for something like a desk against a wall: she'd jump through it, or sink into the floor.)
+    /// </summary>
+    bool Spot(Vector3 target, bool walkable, out Vector3 spot)
+    {
+        spot = target;
+        var layout = HouseLayout.Instance;
+        int floor = layout ? layout.FloorAt(target.y) : 0;
+        var room = layout ? layout.RoomAt(target, floor) : null;
+        float floorY = layout ? layout.transform.position.y + floor * layout.storeyHeight * layout.scale : target.y;
+        float best = float.MaxValue, step = 0.3f * scale;
+        bool found = false;
+        var path = walkable ? new NavMeshPath() : null;
+        for (float r = 0f; r <= 3.3f * scale; r += step)
+        {
+            if (found && r > best + 0.5f * scale) break; // nothing further out can be nearer
+            int n = r < 0.01f ? 1 : Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * r / (0.35f * scale)));
+            for (int i = 0; i < n; i++)
+            {
+                float a = i * Mathf.PI * 2f / n;
+                var p = new Vector3(target.x + Mathf.Cos(a) * r, floorY + 0.15f * scale, target.z + Mathf.Sin(a) * r);
+                if (!MomNav.Sample(p, 0.45f * scale, out var hit)) continue;
+                if (Mathf.Abs(hit.position.y - floorY) > 0.6f * scale) continue; // another floor
+                if (room != null && layout.RoomAt(hit.position, floor) != room) continue; // the other side of a wall
+                float d = Vector3.Distance(Flat(hit.position), Flat(target));
+                if (d >= best) continue;
+                if (walkable && (!NavMesh.CalculatePath(transform.position, hit.position, MomNav.Filter, path) || path.status != NavMeshPathStatus.PathComplete)) continue;
+                best = d;
+                spot = hit.position;
+                found = true;
+            }
+        }
+        return found;
+    }
+
+    // ---- doors
+
+    static HouseDoor[] doors;
+    static float doorsFound = -100f;
+    float baseSpeed;
+    /// <summary>Doors Mom has opened (debug / tests).</summary>
+    public int DoorsOpened { get; private set; }
+
+    /// <summary>The first shut door on her path in the next couple of metres, and how far she is from it.</summary>
+    HouseDoor DoorAhead(out float distance)
+    {
+        distance = 0f;
+        if (Time.time - doorsFound > 3f) { doors = FindObjectsOfType<HouseDoor>(); doorsFound = Time.time; }
+        if (doors == null || doors.Length == 0 || !agent.hasPath) return null;
+        var corners = agent.path.corners;
+        Vector3 a = transform.position;
+        float left = 2.2f * scale;
+        for (int i = 0; i < corners.Length && left > 0f; i++)
+        {
+            Vector3 b = corners[i];
+            float len = Vector3.Distance(a, b);
+            if (len < 0.01f) continue;
+            if (len > left) { b = a + (b - a) * (left / len); len = left; }
+            HouseDoor best = null;
+            float bestAlong = float.MaxValue;
+            foreach (var d in doors)
+            {
+                if (!d || !d.leaf || d.IsOpen || d.OpenAmount > 0.5f) continue;
+                if (!d.Crosses(a, b, 0.15f * scale)) continue;
+                float along = Mathf.Abs(d.PlaneDistance(a)); // (the nearer of two doors on one stretch)
+                if (along < bestAlong) { bestAlong = along; best = d; }
+            }
+            if (best)
+            {
+                distance = (2.2f * scale - left) + Mathf.Abs(best.PlaneDistance(a)) / Mathf.Max(0.05f, Mathf.Abs(Vector3.Dot((b - a).normalized, best.transform.forward)));
+                return best;
+            }
+            left -= len;
+            a = b;
+        }
+        return null;
+    }
+
+    /// <summary>Stops at the door, turns to the handle and opens it - pushing it away, or pulling it towards her and stepping back
+    /// out of its way.</summary>
+    IEnumerator OpenDoor(HouseDoor door)
+    {
+        string was = Doing;
+        Doing = "opening a door";
+        agent.isStopped = true;
+        agent.velocity = Vector3.zero;
+        bool pull = door.OpensTowards(transform.position);
+        yield return Turn(door.Handle, 0.25f);
+        Act(pull ? "open-pull" : "open-push");
+        yield return new WaitForSeconds(0.32f); // hand on the handle
+        if (!door) { agent.isStopped = false; Doing = was; yield break; }
+        door.OpenBy(pull ? 0.55f : 0.4f);
+        DoorsOpened++;
+        if (pull)
+        {
+            // back out of the way of the door (it swings round to its full width from the hinge)
+            float side = Mathf.Sign(door.PlaneDistance(transform.position));
+            Vector3 away = door.transform.forward * side;
+            float back = Mathf.Max(0f, door.LeafLength + 0.32f * scale - Mathf.Abs(door.PlaneDistance(transform.position)));
+            for (float t = 0f; t < 1f; t += Time.deltaTime / 0.5f)
+            {
+                if (agent.isOnNavMesh) agent.Move(away * back * Time.deltaTime / 0.5f);
+                yield return null;
+            }
+        }
+        float w0 = Time.time;
+        while (door && door.OpenAmount < 0.75f && Time.time - w0 < 1.5f) yield return null;
+        agent.isStopped = false;
+        Doing = was;
+    }
+
+    /// <summary>Turns to face a point (no pause after).</summary>
+    IEnumerator Turn(Vector3 at, float seconds)
+    {
+        Vector3 d = Flat(at - transform.position);
+        if (d.sqrMagnitude < 0.01f) yield break;
+        Quaternion from = transform.rotation, to = Quaternion.LookRotation(d);
+        for (float t = 0f; t < 1f; t += Time.deltaTime / seconds)
+        {
+            transform.rotation = Quaternion.Slerp(from, to, Mathf.SmoothStep(0f, 1f, t));
+            yield return null;
+        }
+        transform.rotation = to;
+    }
+
+    /// <summary>Times she had to skip ahead (no way through) - debug / tests.</summary>
+    public int Teleports { get; private set; }
 
     void Teleport(Vector3 target)
     {
-        if (agent && MomNav.Sample(target, 3f * scale, out var hit)) agent.Warp(hit.position);
+        Teleports++;
+        if (agent && Spot(target, false, out var spot)) agent.Warp(spot);
+        else if (agent && MomNav.Sample(target, 3f * scale, out var hit)) agent.Warp(hit.position);
         else transform.position = target;
     }
 

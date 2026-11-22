@@ -43,11 +43,50 @@ public class HouseDoor : MonoBehaviour, IInteractable, IPromptProvider
     {
         if (open == IsOpen) return;
         IsOpen = open;
+        swingTime = 0.28f;
         if (leaf) Fx.Play(Fx.Swish, leaf.position + leaf.right * 0.5f + Vector3.up, 0.35f, open ? 0.55f : 0.65f);
         closingThud = !open;
     }
 
     bool closingThud;
+    float swingTime = 0.28f;
+
+    // ---- for Mom, who opens closed doors on her way through (she has no collider: doors don't stop her walking map)
+
+    /// <summary>Opens it (Mom's hand on the handle): 'smoothTime' says how fast it swings (a pulled door comes slower, as she steps back).</summary>
+    public void OpenBy(float smoothTime)
+    {
+        Toggle(true);
+        swingTime = smoothTime;
+    }
+
+    /// <summary>Closes it, unless someone's standing in the doorway.</summary>
+    public void Close()
+    {
+        if (IsOpen && !SomethingInTheWay()) Toggle(false);
+    }
+
+    /// <summary>0 shut .. 1 wide open.</summary>
+    public float OpenAmount => Mathf.Clamp01(Mathf.Abs(angle) / Mathf.Max(1f, Mathf.Abs(openAngle)));
+    /// <summary>The handle (on the latch side, at hand height).</summary>
+    public Vector3 Handle => transform.TransformPoint(new Vector3(side * Width * 0.85f, 1f, 0f));
+    /// <summary>How long the leaf is, in metres.</summary>
+    public float LeafLength => Width * Mathf.Abs(transform.lossyScale.x);
+    /// <summary>Signed distance from the door's plane (+ = the side it swings into).</summary>
+    public float PlaneDistance(Vector3 p) => Vector3.Dot(p - transform.position, transform.forward);
+    /// <summary>Does it swing towards someone standing at 'p' (so they pull it, and step back out of its way)?</summary>
+    public bool OpensTowards(Vector3 p) => PlaneDistance(p) > 0f;
+
+    /// <summary>Does the walk from a to b go through this doorway?</summary>
+    public bool Crosses(Vector3 a, Vector3 b, float margin)
+    {
+        Vector3 la = transform.InverseTransformPoint(a), lb = transform.InverseTransformPoint(b);
+        if (la.z * lb.z > 0f || Mathf.Approximately(la.z, lb.z)) return false;
+        float t = la.z / (la.z - lb.z);
+        Vector3 p = Vector3.LerpUnclamped(la, lb, t);
+        float x = p.x * side;
+        return x > -margin && x < Width + margin && p.y > -0.8f && p.y < Height;
+    }
 
     void Update()
     {
@@ -66,7 +105,7 @@ public class HouseDoor : MonoBehaviour, IInteractable, IPromptProvider
         }
 
         float target = IsOpen ? openAngle : 0f;
-        angle = Mathf.SmoothDampAngle(angle, target, ref velocity, 0.28f);
+        angle = Mathf.SmoothDampAngle(angle, target, ref velocity, swingTime);
         if (closingThud && Mathf.Abs(angle) < 2f)
         {
             closingThud = false;
