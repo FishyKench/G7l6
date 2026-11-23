@@ -300,6 +300,13 @@ public class FloodHazard : HazardTask
         if (mask) Destroy(mask);
     }
 
+    /// <summary>Debug: it's spread as far as it goes.</summary>
+    public void SpreadFully()
+    {
+        size = maxDiameter;
+        Apply(size);
+    }
+
     void Apply(float diameter)
     {
         if (!puddle) return;

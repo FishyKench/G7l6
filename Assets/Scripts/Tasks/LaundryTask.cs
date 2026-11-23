@@ -44,6 +44,8 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
 
     bool Scattering => !dirtyClothes;
     public int PiecesLeft => scattered.Count;
+    /// <summary>The washer's empty and waiting for the dirty clothes (the cat likes to climb in then).</summary>
+    public bool WaitingForLoad => IsActive && phase == Phase.WaitingForClothes;
     public IReadOnlyList<DirtyClothesPiece> Pieces => scattered;
     Vector3 shakeOrigin;
     bool shaking;
@@ -107,6 +109,11 @@ public class LaundryTask : TaskBase, IInteractable, IPromptProvider
     {
         if (!IsActive) return;
 
+        if (CatBrain.InWasher)
+        {
+            GameHUD.Toast($"{CatBrain.Name} is inside the washer! Lift her out first (E on the cat).", GameHUD.Warn);
+            return;
+        }
         switch (phase)
         {
             case Phase.WaitingForClothes:

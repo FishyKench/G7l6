@@ -218,4 +218,63 @@ public class TvTask : TaskBase, IInteractable, IPromptProvider
     }
 
     bool ValidSlot() => screenMaterialIndex >= 0 && screenMaterialIndex < screenRenderer.sharedMaterials.Length;
+
+    // ---- broken (water dripped into it)
+
+    /// <summary>Water got into it: it's dead for the rest of the day.</summary>
+    public bool Broken { get; private set; }
+    public override bool CanStartNow => !Broken;
+
+    /// <summary>Fries it: sparks, a cracked dark screen, never comes on again today.</summary>
+    public void Break()
+    {
+        if (Broken) return;
+        Broken = true;
+        if (IsActive) Fail("The TV shorted out!");
+        SetStatic(false);
+        if (!screenRenderer) return;
+        var b = screenRenderer.bounds;
+        Power.Sparks(b.center);
+        var crack = new GameObject("Cracked screen");
+        crack.transform.position = b.center + transform.forward * 0.02f;
+        crack.transform.rotation = Quaternion.LookRotation(-transform.forward);
+        float w = Mathf.Max(Mathf.Abs(Vector3.Dot(b.size, transform.right)), 0.3f), h = b.size.y;
+        crack.transform.localScale = new Vector3(w * 0.95f, h * 0.9f, 1f);
+        var mf = crack.AddComponent<MeshFilter>();
+        mf.sharedMesh = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
+        var r = crack.AddComponent<MeshRenderer>();
+        r.sharedMaterial = new Material(Shader.Find("Sprites/Default")) { mainTexture = CrackTexture() };
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+
+    static Texture2D crackTex;
+
+    /// <summary>A dark screen with a starburst of cracks.</summary>
+    static Texture2D CrackTexture()
+    {
+        if (crackTex) return crackTex;
+        const int N = 128;
+        crackTex = new Texture2D(N, N, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color32[N * N];
+        for (int i = 0; i < px.Length; i++) px[i] = new Color32(8, 8, 10, 235);
+        var rnd = new System.Random(7);
+        var c = new Vector2(N * 0.42f, N * 0.58f);
+        for (int ray = 0; ray < 11; ray++)
+        {
+            float a = ray / 11f * Mathf.PI * 2f + (float)rnd.NextDouble() * 0.4f;
+            Vector2 p = c;
+            for (int step = 0; step < 90; step++)
+            {
+                a += ((float)rnd.NextDouble() - 0.5f) * 0.35f;
+                p += new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 1.2f;
+                int x = (int)p.x, y = (int)p.y;
+                if (x < 1 || y < 1 || x >= N - 1 || y >= N - 1) break;
+                px[y * N + x] = new Color32(200, 210, 220, 255);
+                px[y * N + x + 1] = new Color32(120, 128, 136, 255);
+            }
+        }
+        crackTex.SetPixels32(px);
+        crackTex.Apply();
+        return crackTex;
+    }
 }

@@ -17,7 +17,7 @@ public static class Shop
 
     // Item ids (use these in effect code: Shop.IsInstalled(Shop.LeakSensor)).
     public const string OvenTimer = "oven_timer", LeakSensor = "leak_sensor", RobotVacuum = "robot_vacuum", CatFeeder = "cat_feeder",
-        RemoteHolder = "remote_holder", DoorCamera = "door_camera", Headphones = "headphones",
+        RemoteHolder = "remote_holder", ScratchingPost = "scratching_post", DoorCamera = "door_camera", Headphones = "headphones",
         Webcam = "webcam_mic", RingLight = "ring_light", GraphicsCard = "gpu_upgrade", StreamingPC = "streaming_pc";
 
     /// <summary>One thing for sale.</summary>
@@ -43,6 +43,8 @@ public static class Shop
             blurb = "Feeds the cat twice a day. A full tummy keeps Kitty calm for a whole minute." },
         new Item { id = RemoteHolder, name = "Remote holder", price = 15, category = Category.Home, box = new Vector3(0.24f, 0.16f, 0.20f),
             blurb = "A snug caddy for the TV remote. The cat can no longer run off with it." },
+        new Item { id = ScratchingPost, name = "Scratching post", price = 20, category = Category.Home, box = new Vector3(0.44f, 0.8f, 0.44f),
+            blurb = "Something better to shred. Kitty scratches this instead of the sofa and the curtains (most of the time)." },
         new Item { id = DoorCamera, name = "Door camera", price = 45, category = Category.Home, box = new Vector3(0.30f, 0.20f, 0.24f),
             blurb = "Spots Mom's car coming home and texts you a warning before she walks in." },
         new Item { id = Headphones, name = "Noise-cancelling headphones", price = 60, category = Category.Home, box = new Vector3(0.34f, 0.24f, 0.30f),

@@ -50,6 +50,8 @@ public class CampaignRuntime : MonoBehaviour
         yield return null; // every Start() has run, the scene's own values are in place
         ApplyRules();
         yield return new WaitForSeconds(1.2f);
+        while (Onboarding.Showing) yield return null; // (the first-time intro comes first)
+        yield return new WaitForSeconds(0.3f);
         ui.ShowIntro(rules);
         if (LiveStream.BannedToday)
         {
@@ -73,7 +75,7 @@ public class CampaignRuntime : MonoBehaviour
         if (cat && rules.catMischiefMult > 0.01f)
             cat.timeBetweenMischief = new Vector2(cat.timeBetweenMischief.x / rules.catMischiefMult, cat.timeBetweenMischief.y / rules.catMischiefMult);
 
-        foreach (var homework in FindObjectsOfType<TypingTask>(true)) homework.pagesRequired = Mathf.Max(1, Tuning.HomeworkQuestions); // maths questions now
+        // (the homework sets its own parts when it starts: maths, typing or both)
         foreach (var oven in FindObjectsOfType<OvenTask>(true)) oven.catchFireAt *= rules.ovenBurnMult;
         foreach (var leak in FindObjectsOfType<CeilingLeakTask>(true)) leak.puddleGrowTime *= rules.leakGrowMult;
 

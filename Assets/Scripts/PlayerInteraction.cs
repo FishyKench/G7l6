@@ -56,6 +56,7 @@ public class PlayerInteraction : MonoBehaviour
 
         string prompt = null;
         if (mainTask != null) prompt = mainTask is IPromptProvider mp ? mp.Prompt : "Use";
+        if (mainTask != null && Power.Out && Power.Needs(mainTask)) prompt = "No power - reset the fuse box (garage)";
         else if (interactable != null) prompt = interactable is IPromptProvider ip ? ip.Prompt : "Use";
 
         bool hasTarget = !string.IsNullOrEmpty(prompt);
@@ -106,6 +107,7 @@ public class PlayerInteraction : MonoBehaviour
     void StartMainTask(IMainTask mainTask)
     {
         if (InMainTask) return;
+        if (Power.Out && Power.Needs(mainTask)) { GameHUD.Toast("It's dead - the power's out. The fuse box is in the garage.", GameHUD.Warn); return; }
         currentMainTask = mainTask;
         SetPlayerControl(false);
         currentMainTask.StartMainTask();
@@ -119,6 +121,12 @@ public class PlayerInteraction : MonoBehaviour
         task.StopMainTask();
         SetPlayerControl(true);
     }
+
+    /// <summary>What you're sitting at / using right now (null if nothing).</summary>
+    public IMainTask CurrentMainTask => currentMainTask;
+
+    /// <summary>Gets you up from what you're using (e.g. the PC when the power goes).</summary>
+    public void ForceStopMainTask() => StopCurrentMainTask();
 
     /// <summary>For main tasks that close themselves (e.g. homework finished).</summary>
     public void ReleaseMainTask(IMainTask task)

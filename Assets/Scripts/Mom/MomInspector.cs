@@ -429,7 +429,7 @@ public class MomInspector : MonoBehaviour
         var c = Cooking.Instance;
         Act("interact-right"); // a look in the pot
         yield return new WaitForSeconds(0.8f);
-        if (c && !c.IsActive && c.LastSucceeded)
+        if (c && !c.IsActive && c.LastSucceeded && !c.Eaten)
         {
             bool perfect = day.quality.Exists(q => q.what.StartsWith("Perfect"));
             bool tasty = day.quality.Exists(q => q.what.StartsWith("Tasty"));

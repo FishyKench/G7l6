@@ -128,6 +128,8 @@ public class DayManager : MonoBehaviour
     void Start()
     {
         Time.timeScale = 1f;
+        Incidents.Clear(); // (a new day: yesterday's damage is fixed)
+        Power.Reset();
         hud = gameObject.AddComponent<DayHud>();
         MomNav.Bake(); // Mom's walking map, baked in the background long before 6 PM
     }
@@ -310,6 +312,9 @@ public class DayManager : MonoBehaviour
                 where = item.transform.position,
             });
         }
+        // damage that's done (the sofa the cat shredded, the TV the leak fried, dinner the cat ate)
+        foreach (var inc in Incidents.All)
+            list.Add(new Finding { what = inc.what, line = inc.line, points = inc.points, where = inc.where });
         float strict = Campaign.Today.momStrict; // Thursday's guests, Friday, harder weeks
         if (Mathf.Abs(strict - 1f) > 0.01f)
             foreach (var f in list) f.points = Mathf.Max(1, Mathf.RoundToInt(f.points * strict));
@@ -330,7 +335,10 @@ public class DayManager : MonoBehaviour
                 if (f.points <= 0) return null;
                 break;
             case FireHazard _: f.what = "The kitchen was ON FIRE"; f.line = "Is that a FIRE?!"; f.points = 25; break;
+            case Spill _: f.what = "A drink spilled on the floor"; f.line = "What's this puddle?!"; f.points = 6; break;
             case FloodHazard _: f.what = "Water all over the floor"; f.line = "Why is the floor WET?!"; f.points = 15; break;
+            case PawPrints _: f.what = "Wet paw prints all over the house"; f.line = "Paw prints EVERYWHERE?!"; f.points = 6; break;
+            case FuseBox _: f.what = "The power was out"; f.line = "Why are all the lights off?!"; f.points = 10; break;
             case CeilingLeakTask _: f.what = "Water coming through the ceiling"; f.line = "Water from the CEILING?!"; f.points = 15; break;
             case TvTask _: f.what = $"{task.taskName} blaring static"; f.line = "Turn that TV OFF."; f.points = 8; break;
             case OvenTask oven: f.what = "Dinner not made"; f.line = oven.Progress >= 1f ? "Something's burning..." : "Where's dinner?"; f.points = 12; break;
@@ -400,7 +408,7 @@ public class DayManager : MonoBehaviour
             int pages = Mathf.Max(1, homework.pagesRequired);
             bool finished = !homework.IsActive && homework.LastSucceeded;
             int typed = finished ? pages : Mathf.Clamp(Mathf.FloorToInt(homework.Progress * pages + 0.0001f), 0, pages);
-            r.homework = $"{typed}/{pages} questions";
+            r.homework = $"{typed}/{pages} {homework.UnitName}";
             // If Mom saw the unfinished homework it's already in 'found'; otherwise count it here.
             bool alreadyFound = r.found.Exists(f => f.what == "Homework not finished");
             r.homeworkPoints = finished || alreadyFound ? 0 : Mathf.RoundToInt(30f * (1f - (float)typed / pages));

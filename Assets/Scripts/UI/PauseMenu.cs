@@ -91,6 +91,7 @@ public class PauseMenu : MonoBehaviour
 
     void Update()
     {
+        if (Onboarding.Showing) return; // (the intro uses Esc to skip)
         bool busy = (PlayerInteraction.Instance && PlayerInteraction.Instance.InMainTask)
                     || (DayManager.Instance && DayManager.Instance.State == DayManager.Phase.Report);
         if (Input.GetKeyDown(key) || Input.GetKeyDown(altKey))
@@ -286,7 +287,7 @@ public class PauseMenu : MonoBehaviour
             int total = Mathf.Max(1, homework.pagesRequired);
             homeworkDone = !homework.IsActive && homework.LastSucceeded;
             int typed = homeworkDone ? total : Mathf.FloorToInt(homework.Progress * total + 0.0001f);
-            pages = $"{typed}/{total} questions";
+            pages = $"{typed}/{total} {homework.UnitName}";
         }
         float stress = StressManager.Instance ? StressManager.Instance.Normalized : 0f;
 

@@ -175,6 +175,9 @@ public class MomDebug : MonoBehaviour
         GUILayout.EndHorizontal();
 
         GUILayout.Space(6);
+        CatAndChains();
+
+        GUILayout.Space(6);
         GUILayout.Label("Animations", head);
         if (!mom) GUILayout.Label("(bring Mom first)", small);
         else
@@ -190,6 +193,85 @@ public class MomDebug : MonoBehaviour
             GUILayout.Label("(walking plays by itself: use Roam or Walk to me)", small);
         }
         GUI.enabled = true;
+    }
+
+    /// <summary>The cat's newer behaviours and the chain reactions, on a button each.</summary>
+    void CatAndChains()
+    {
+        GUILayout.Space(6);
+        GUILayout.Label("Kitty", head);
+        var cat = CatBrain.Instance;
+        if (!cat) { GUILayout.Label("(no cat)", small); }
+        else
+        {
+            string[,] buttons =
+            {
+                { "mug", "Knock a drink off" }, { "food", "Steal an ingredient" },
+                { "dinner", "Eat dinner" }, { "scratch", "Scratch sofa/curtains" },
+                { "washer", "Hide in the washer" }, { "window", "Watch birds" },
+                { "drips", "Swat the leak drips" }, { "fire", "Panic at a fire" },
+                { "vacuum", "Ride the vacuum" }, { "wet", "Wet paws (prints)" },
+            };
+            for (int i = 0; i < buttons.GetLength(0); i += 2)
+            {
+                GUILayout.BeginHorizontal();
+                for (int j = i; j < i + 2 && j < buttons.GetLength(0); j++)
+                    if (GUILayout.Button(buttons[j, 1])) note = "Kitty: " + cat.DebugDo(buttons[j, 0]);
+                GUILayout.EndHorizontal();
+            }
+        }
+
+        GUILayout.Space(6);
+        GUILayout.Label("New player", head);
+        if (GUILayout.Button("Show the intro + how-to notes again (from the next day)"))
+        {
+            Onboarding.ForgetSeen();
+            note = "Intro and how-to notes reset: they show again when a day starts (R on the report card, or restart).";
+        }
+
+        GUILayout.Space(6);
+        GUILayout.Label("Chain reactions", head);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("Put out a drink"))
+            note = ChainReactions.Instance && ChainReactions.Instance.PutOutMug(false) ? "A drink's out on a table." : "No free table found.";
+        if (GUILayout.Button(Power.Out ? "Power back on" : "Cut the power"))
+        {
+            if (Power.Out) { Power.Restore(); if (FuseBox.Instance && FuseBox.Instance.IsActive) FuseBox.Instance.Complete(); }
+            else Power.Cut(Player() ? Player().position : Vector3.zero);
+        }
+        GUILayout.EndHorizontal();
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("Flood hits a socket"))
+        {
+            FloodHazard flood = null;
+            foreach (var f in FindObjectsOfType<FloodHazard>(true)) if (!(f is Spill)) { flood = f; break; }
+            if (!flood) note = "No flood in this house.";
+            else
+            {
+                if (!flood.IsActive && GameManager.Instance) GameManager.Instance.StartTask(flood);
+                StartCoroutine(SpreadSoon(flood));
+                note = "The washer flood spreads to its socket...";
+            }
+        }
+        if (GUILayout.Button("Leak ruins what's under it"))
+        {
+            var leak = FindObjectOfType<CeilingLeakTask>();
+            if (!leak) note = "No ceiling leak.";
+            else
+            {
+                if (!leak.IsActive && GameManager.Instance) GameManager.Instance.StartTask(leak);
+                if (ChainReactions.Instance) ChainReactions.Instance.Ruin(leak);
+                note = Incidents.All.Count > 0 ? "Ruined: " + Incidents.All[Incidents.All.Count - 1].what : "Nothing under the drips to ruin.";
+            }
+        }
+        GUILayout.EndHorizontal();
+    }
+
+    IEnumerator SpreadSoon(FloodHazard flood)
+    {
+        yield return null;
+        yield return new WaitForSeconds(0.6f); // (the chain reactions place its socket)
+        if (flood) flood.SpreadFully();
     }
 
     static string Nice(string gesture) =>

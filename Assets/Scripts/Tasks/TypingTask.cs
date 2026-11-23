@@ -1,8 +1,13 @@
+using System.Collections.Generic;
+using System.Text;
 using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// Homework: sit at the desk and do the maths questions (Tuning.HomeworkQuestions of them): 2-digit adding and taking away,
+/// Homework: sit at the desk and get through today's parts. Each day it's one of three kinds (picked at random): maths questions,
+/// typing pages, or a mix of both.
+///   Typing: copy a page of text exactly, letter by letter (typed letters go green; a wrong key shows red until you Backspace it).
+///   Maths (Tuning.HomeworkQuestions of them): 2-digit adding and taking away,
 /// times tables (up to 13 x 9), never dividing - made up fresh each time; they get longer with the days you've played and the gadgets
 /// you've bought (see MathHomework). Type the answer, Enter to check it: right = the next question, wrong = a mistake (a little stress)
 /// and try again. The cat lying on the keyboard steps on the number keys. Progress is kept if you get up (Esc).
@@ -14,7 +19,7 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 {
     [Header("Homework")]
     public int pagesRequired = 2;
-    [Tooltip("Not used any more (the homework is maths now).")]
+    [Tooltip("Letters on a typing page (it grows with the days you've played and the gadgets you've bought).")]
     public int minCharsPerPage = 170;
     [Tooltip("Stress added per wrong answer (or a key the cat steps on).")]
     public float stressPerTypo = 3f;
@@ -28,6 +33,19 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 
     MathHomework.Question question;
     bool hasQuestion;
+
+    // ---- today's parts: maths questions and / or typing pages
+    enum Part { Maths, Typing }
+    readonly List<Part> parts = new List<Part>();
+    string page = "";
+    int position;
+    bool hasError;
+    char wrongChar;
+    const string UpcomingColor = "#8F8F99";
+
+    /// <summary>What today's homework is made of, for the report card: "questions", "pages" or "parts".</summary>
+    public string UnitName => parts.Count == 0 || parts.TrueForAll(x => x == Part.Maths) ? "questions" : parts.TrueForAll(x => x == Part.Typing) ? "pages" : "parts";
+    bool Typing => pagesDone < parts.Count && parts[pagesDone] == Part.Typing;
     string answer = "";
     string feedback = "";
     float feedbackUntil;
@@ -64,14 +82,24 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 
     public override float Progress => pagesRequired <= 0 ? 1f : (float)pagesDone / pagesRequired;
 
-    public override string Status => $"Question {Mathf.Min(pagesDone + 1, pagesRequired)}/{pagesRequired} - at the desk";
+    public override string Status => $"{(Typing ? "Typing page" : "Question")} {Mathf.Min(pagesDone + 1, pagesRequired)}/{pagesRequired} - at the desk";
 
     public string Prompt => !IsActive ? null : CatBrain.OnKeyboard ? $"{CatBrain.Name} is on the keyboard - shoo her" : "Do homework";
 
     /// <summary>The cat is lying on the keyboard and steps on a key: a stray number in your answer (only matters while you're at it).</summary>
     public void CatMashesKeys()
     {
-        if (!open || !hasQuestion || answer.Length >= 12) return;
+        if (open && Typing && !hasError && page.Length > 0)
+        {
+            const string mash = "asdfghjkl;qwertyuiopzxcvbnm";
+            hasError = true;
+            wrongChar = mash[Random.Range(0, mash.Length)];
+            typos++;
+            if (Stress) Stress.AddStress(stressPerTypo * 0.5f);
+            Say($"<color={ErrorColor}>{CatBrain.Name} stepped on the keys!</color>");
+            return;
+        }
+        if (!open || !hasQuestion || Typing || answer.Length >= 12) return;
         answer += (char)('0' + Random.Range(0, 10));
         typos++;
         if (Stress) Stress.AddStress(stressPerTypo * 0.5f);
@@ -80,7 +108,14 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 
     protected override void OnActivated()
     {
-        pagesRequired = Mathf.Max(1, Tuning.HomeworkQuestions);
+        // today's kind of homework: maths, typing, or both
+        int questions = Mathf.Max(1, Tuning.HomeworkQuestions);
+        parts.Clear();
+        float roll = Random.value;
+        if (roll < 0.4f) for (int i = 0; i < questions; i++) parts.Add(Part.Maths);
+        else if (roll < 0.72f) { parts.Add(Part.Typing); if (MathHomework.Level >= 2) parts.Add(Part.Typing); }
+        else { parts.Add(Part.Typing); for (int i = 0; i < Mathf.Max(1, questions - 1); i++) parts.Add(Part.Maths); if (Random.value < 0.5f) parts.Insert(parts.Count, Part.Maths); }
+        pagesRequired = parts.Count;
         pagesDone = 0;
         typos = 0;
         NewQuestion();
@@ -88,10 +123,22 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
 
     void NewQuestion()
     {
-        question = MathHomework.Make(MathHomework.Level);
         hasQuestion = true;
         answer = "";
-        ClearInk(); // a clean sheet for every question
+        hasError = false;
+        position = 0;
+        if (Typing) page = TypingTextGenerator.Generate(minCharsPerPage + 22 * MathHomework.Level);
+        else question = MathHomework.Make(MathHomework.Level);
+        ClearInk(); // a clean sheet for every part
+        ShowTools(!Typing);
+    }
+
+    void ShowTools(bool on)
+    {
+        if (inkRect) inkRect.gameObject.SetActive(on);
+        if (penButton) penButton.gameObject.SetActive(on);
+        if (eraserButton) eraserButton.gameObject.SetActive(on);
+        if (clearButton) clearButton.gameObject.SetActive(on);
     }
 
     // ---------- scrap paper ----------
@@ -246,6 +293,7 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
             return;
         }
         if (!hasQuestion) NewQuestion();
+        if (Typing) { TypeInput(); return; }
         if (Time.frameCount % 20 == 0) Refresh(); // the blinking cursor
         UpdateInk();
 
@@ -260,25 +308,61 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
         Refresh();
     }
 
+    /// <summary>Copying a page: each letter exactly; a wrong key has to be Backspaced before you go on.</summary>
+    void TypeInput()
+    {
+        string input = Input.inputString;
+        if (string.IsNullOrEmpty(input)) return;
+        foreach (char c in input)
+        {
+            if (c == '\b')
+            {
+                if (hasError) hasError = false;
+                else if (position > 0) position--;
+                continue;
+            }
+            if (char.IsControl(c)) continue; // Enter, Esc, Tab...
+            if (hasError) continue;          // must Backspace first
+            if (c == page[position])
+            {
+                position++;
+                if (position >= page.Length) { PartDone(); return; }
+            }
+            else
+            {
+                hasError = true;
+                wrongChar = c;
+                typos++;
+                if (Stress) Stress.AddStress(stressPerTypo * 0.5f);
+            }
+        }
+        Refresh();
+    }
+
+    /// <summary>A part's done (a page typed or a question right): the next one, or finished.</summary>
+    void PartDone()
+    {
+        bool wasTyping = Typing;
+        pagesDone++;
+        if (pagesDone >= pagesRequired)
+        {
+            StopMainTask();
+            if (!Hosted && PlayerInteraction.Instance) PlayerInteraction.Instance.ReleaseMainTask(this);
+            hasQuestion = false;
+            Complete("Homework finished!");
+            Refresh();
+            return;
+        }
+        NewQuestion();
+        GameHUD.Toast($"{(wasTyping ? "Page" : "Question")} done - {pagesDone}/{pagesRequired}!", GameHUD.Good);
+        Say($"<color={GoodColor}><b>{(wasTyping ? "Page done!" : "Correct!")}</b></color> Next one.");
+    }
+
     void Check()
     {
         if (answer.Length == 0) return;
         if (long.TryParse(answer, out long given) && given == question.answer)
-        {
-            pagesDone++;
-            if (pagesDone >= pagesRequired)
-            {
-                StopMainTask();
-                if (!Hosted && PlayerInteraction.Instance) PlayerInteraction.Instance.ReleaseMainTask(this);
-                hasQuestion = false;
-                Complete("Homework finished!");
-                Refresh();
-                return;
-            }
-            NewQuestion();
-            GameHUD.Toast($"Question {pagesDone}/{pagesRequired} right!", GameHUD.Good);
-            Say($"<color={GoodColor}><b>Correct!</b></color> Next one.");
-        }
+            PartDone();
         else
         {
             typos++;
@@ -301,8 +385,9 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
             return;
         }
         if (!hasQuestion) return;
+        if (Typing) { RefreshTyping(); return; }
 
-        titleText.text = $"<b>Maths homework</b>   <size=70%>Question {pagesDone + 1} of {pagesRequired}</size>";
+        titleText.text = $"<b>Maths homework</b>   <size=70%>Part {pagesDone + 1} of {pagesRequired}: a question</size>";
         string cursor = open && !CatBrain.OnKeyboard && Mathf.Repeat(Time.unscaledTime, 1f) < 0.6f ? "_" : " ";
         string shown = answer.Length > 0 ? answer : (open ? "" : "...");
         bodyText.text =
@@ -316,6 +401,34 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
             footerText.text = !open && Hosted
                 ? "<b>Click the page</b> to keep going"
                 : $"Mistakes: {typos}    <b>Enter</b> check    <b>Backspace</b> fix    <b>Mouse</b> draw    <b>Esc</b> {(Hosted ? "get up" : "stand up")}";
+    }
+
+    void RefreshTyping()
+    {
+        titleText.text = $"<b>Homework</b>   <size=70%>Part {pagesDone + 1} of {pagesRequired}: type this page out</size>";
+        var sb = new StringBuilder(page.Length + 160);
+        sb.Append("<size=78%>");
+        sb.Append("<color=").Append(GoodColor).Append('>').Append(page, 0, position).Append("</color>");
+        if (hasError)
+        {
+            // the wrong key shows in place of the letter that should be there
+            string shown = wrongChar == ' ' ? "_" : wrongChar.ToString();
+            sb.Append("<mark=#E0201B33><color=").Append(ErrorColor).Append("><u><noparse>").Append(shown).Append("</noparse></u></color></mark>");
+        }
+        else if (position < page.Length)
+            sb.Append("<mark=#2E8B3E33><color=").Append(InkColor).Append("><noparse>").Append(page[position]).Append("</noparse></color></mark>");
+        if (position + 1 < page.Length)
+            sb.Append("<color=").Append(UpcomingColor).Append("><noparse>").Append(page, position + 1, page.Length - position - 1).Append("</noparse></color>");
+        sb.Append("</size>");
+        if (!string.IsNullOrEmpty(feedback)) sb.Append("\n\n").Append(feedback);
+        bodyText.text = sb.ToString();
+
+        if (CatBrain.OnKeyboard)
+            footerText.text = $"<color={ErrorColor}><b>{CatBrain.Name} is lying on the keyboard!</b></color>  <b>Esc</b>, then shoo her.      Mistakes: {typos}";
+        else
+            footerText.text = hasError
+                ? $"<color={ErrorColor}><b>Wrong key!</b> Press Backspace to fix it.</color>      Mistakes: {typos}"
+                : !open && Hosted ? "<b>Click the page</b> to keep typing" : $"Mistakes: {typos}      <b>Backspace</b> fix      <b>Esc</b> {(Hosted ? "get up" : "stand up")}";
     }
 
     void EnsureUI()
@@ -381,6 +494,7 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
         footerText = UIFactory.Text("Footer", paper.transform, 22, new Color(0.3f, 0.3f, 0.36f), TextAlignmentOptions.BottomLeft, font);
         UIFactory.Fill(footerText.rectTransform, 100, 50, 440, 30);
 
+        ShowTools(!Typing);
         ui.SetActive(false);
     }
 }

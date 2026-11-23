@@ -246,4 +246,28 @@ public class RobotVacuum : MonoBehaviour
     }
 
     static Vector3 Flat(Vector3 v) { v.y = 0f; return v; }
+
+    // ---- for the cat (she runs from it - or rides it)
+
+    public static RobotVacuum Active { get; private set; }
+    void OnEnable() => Active = this;
+    void OnDisable() { if (Active == this) Active = null; }
+
+    /// <summary>Driving about right now.</summary>
+    public bool Moving => agent && agent.enabled && agent.velocity.sqrMagnitude > 0.004f;
+
+    Renderer[] shell;
+
+    /// <summary>The middle of its top (where a cat would sit).</summary>
+    public Vector3 TopPoint
+    {
+        get
+        {
+            if (shell == null || shell.Length == 0) shell = GetComponentsInChildren<Renderer>();
+            if (shell.Length == 0) return transform.position;
+            var b = shell[0].bounds;
+            foreach (var r in shell) if (r) b.Encapsulate(r.bounds);
+            return new Vector3(b.center.x, b.max.y, b.center.z);
+        }
+    }
 }

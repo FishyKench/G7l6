@@ -45,7 +45,9 @@ public class GameManager : MonoBehaviour
         if (!FindObjectOfType<LiveStreamRuntime>()) gameObject.AddComponent<LiveStreamRuntime>(); // LiveLoop streaming: viewers, chat, tips
         if (!FindObjectOfType<Cooking>()) new GameObject("Cooking").AddComponent<Cooking>(); // dinner: recipes, stations, chopping
         if (!FindObjectOfType<RoomProgress>()) gameObject.AddComponent<RoomProgress>(); // trophies + bought gear in your room
-        if (!FindObjectOfType<HouseSenses>()) gameObject.AddComponent<HouseSenses>(); // hear the house from inside VR (muffled cues + sticky notes)
+        if (!FindObjectOfType<HouseSenses>()) gameObject.AddComponent<HouseSenses>();
+        if (!FindObjectOfType<Onboarding>()) gameObject.AddComponent<Onboarding>(); // start in your room, the intro, task markers, how-to notes
+        if (!FindObjectOfType<ChainReactions>()) gameObject.AddComponent<ChainReactions>(); // floods short sockets, the leak ruins what's under it, drinks for the cat // hear the house from inside VR (muffled cues + sticky notes)
     }
 
     void Start()

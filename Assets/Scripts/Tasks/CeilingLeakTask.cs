@@ -32,6 +32,11 @@ public class CeilingLeakTask : TaskBase, IInteractable, IPromptProvider
     float puddleSize, growTime;
     Vector3 floorPoint;
 
+    /// <summary>Where the drips land (on the floor below the tap).</summary>
+    public Vector3 DripPoint => floorPoint;
+    /// <summary>A bucket is catching the drips.</summary>
+    public bool BucketUnder => bucketPlaced;
+
     void Reset()
     {
         taskName = "Stop the leak";

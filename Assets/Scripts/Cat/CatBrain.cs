@@ -23,7 +23,7 @@ using UnityEngine.AI;
 /// the floor (instead of moving it down) so the legs never go through the floor.
 /// </summary>
 [RequireComponent(typeof(NavMeshAgent))]
-public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
+public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 {
     public static CatBrain Instance { get; private set; }
     /// <summary>True while the cat is lying on the homework keyboard.</summary>
@@ -83,7 +83,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     [Tooltip("Go lie on the homework keyboard right now.")]
     public KeyCode debugKeyboardKey = KeyCode.Quote;
 
-    enum Mood { Idle, Walking, Stalking, Playing, Running, Napping, Purring, Perching, Keyboard }
+    enum Mood { Idle, Walking, Stalking, Playing, Running, Napping, Purring, Perching, Keyboard, Scratching, InWasher, Eating, Hiding, Riding, Watching }
 
     static readonly int VertParam = Animator.StringToHash("Vert");
     static readonly int StateParam = Animator.StringToHash("State");
@@ -135,6 +135,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     // pose bookkeeping and safety nets
     BoneTweak bodyTweak, headTweak;
+    CatPose pose; // (lying down for real: naps, perches, the keyboard, the vacuum...)
     Vector3 bodyRestScale = Vector3.one;
     Vector3 lastGoodPosition;
     bool hasGoodPosition;
@@ -155,6 +156,8 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         if (!headBone) headBone = FindBone("spine.008") ?? FindBone("spine.007");
         if (!mouthBone) mouthBone = FindBone("jaw") ?? headBone;
         if (bodyBone) bodyRestScale = bodyBone.localScale;
+        pose = GetComponent<CatPose>();
+        if (!pose) pose = gameObject.AddComponent<CatPose>();
 
         // The model comes with keyboard-controlled movement scripts. The cat moves itself now.
         foreach (var mb in GetComponents<MonoBehaviour>())
@@ -230,6 +233,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         UpdateJump(dt);
         SafetyCheck();
         Trace();
+        WorldUpdate(dt);
 
         if (animator)
         {
@@ -252,6 +256,11 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
         crouch = Mathf.MoveTowards(crouch, crouchTarget, dt * 4f);
         loaf = Mathf.MoveTowards(loaf, loafTarget, dt * 1.5f);
+        // the big rests are a proper lie-down (CatPose), not a squash: napping (asleep), perched up somewhere, on the keyboard,
+        // in the washer, riding the vacuum
+        bool lying = !jumping && (loafTarget >= 0.5f || mood == Mood.Perching);
+        if (pose) { pose.lie = lying ? 1f : 0f; pose.sleep = mood == Mood.Napping ? 1f : 0f; }
+        if (lying) loaf = 0f;
         purr = Mathf.MoveTowards(purr, mood == Mood.Purring ? 1f : 0f, dt * 1.2f);
 
         if (Time.time > nextWord)
@@ -273,10 +282,12 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     {
         if (!ready) return;
         float s = Size;
+        WorldMove();
 
         if (bodyBone)
         {
             bodyTweak.Begin(bodyBone);
+            WorldPose(s);
             if (hop > 0f) bodyBone.position += Vector3.up * hop * s;
             if (Mathf.Abs(wiggle) > 0.01f)
             {
@@ -399,6 +410,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
     public void Interact()
     {
         if (!ready || jumping) return;
+        if (WorldShoo()) return;
 
         if (mood == Mood.Keyboard)
         {
@@ -572,11 +584,14 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
                 if (Calm) nextMischief = calmUntil + Random.Range(4f, 12f); // full and sleepy: no trouble for now
                 else
                 {
-                    nextMischief = Time.time + Random.Range(timeBetweenMischief.x, timeBetweenMischief.y);
+                    nextMischief = Time.time + Random.Range(timeBetweenMischief.x, timeBetweenMischief.y) * Tuning.CatMischief;
                     var trouble = PickMischief();
                     if (trouble != null) { yield return trouble; continue; }
                 }
             }
+
+            var calm = WorldIdle(); // the window, the leak's drips
+            if (calm != null) { yield return calm; continue; }
 
             float r = Random.value;
             if (r < 0.08f) yield return Zoomies();
@@ -588,6 +603,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     IEnumerator PickMischief()
     {
+        items = FindObjectsOfType<Carryable>(true); // (ingredients come and go while you cook)
         bool tvBlaring = false;
         foreach (var tv in FindObjectsOfType<TvTask>())
             if (tv.IsActive) tvBlaring = true;
@@ -616,6 +632,7 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             float score = 2.5f * Random.Range(0.5f, 1.5f);
             if (score > bestScore) { bestScore = score; best = SitOnKeyboard(homework); }
         }
+        WorldMischief(ref best, ref bestScore);
         return best;
     }
 
@@ -937,6 +954,10 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         Vector3 start = item.transform.position;
         Vector3 away = Flat(start - transform.position);
         away = away.sqrMagnitude > 0.0001f ? away.normalized : transform.forward;
+        PawSwipe(Random.value < 0.5f, 0.3f); // a bat with a front paw
+        yield return new WaitForSeconds(0.1f);
+        if (!Available(item)) yield break;
+        start = item.transform.position;
         Vector3 side = Vector3.Cross(Vector3.up, away) * Random.Range(-0.6f, 0.6f);
         Vector3 end = start + (away + side).normalized * Random.Range(0.06f, 0.14f);
 
@@ -1008,6 +1029,9 @@ public class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     void ResetPose()
     {
+        if (offMap) BackOnMap(transform.position); // (never left stuck in the washer or on the vacuum)
+        if (carried) DropCarried(); // (spooked, panicking...: whatever's in her mouth drops)
+        panicking = false;
         crouchTarget = 0f;
         loafTarget = 0f;
         wiggle = 0f;

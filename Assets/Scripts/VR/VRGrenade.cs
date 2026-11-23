@@ -105,7 +105,7 @@ public class VRGrenade : MonoBehaviour
             arena.Burst(at, new Color(1f, 0.9f, 0.5f), 20);
         }
         Fx.Puff(at, new Color(0.25f, 0.24f, 0.26f, 0.8f), 26, 2.2f);
-        Fx.Play(Fx.Boom, at, 1f, Random.Range(0.9f, 1.05f));
+        // (sound: none for now - your own frag SFX goes here)
         Blast(at, new Color(1f, 0.65f, 0.3f), 2.4f, 10f);
 
         foreach (var f in VRFighter.All.ToArray())
@@ -129,7 +129,7 @@ public class VRGrenade : MonoBehaviour
 
     void Flash(Vector3 at)
     {
-        Fx.Play(Fx.Boom, at, 0.9f, 1.7f);
+        // (sound: none for now - your own flashbang SFX goes here)
         Blast(at, Color.white, 1.4f, 16f);
         if (VRArena.Instance) VRArena.Instance.Burst(at, Color.white, 30);
         foreach (var f in VRFighter.All)
