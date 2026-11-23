@@ -36,6 +36,8 @@ public static class Wallet
     public static event Action Changed;
 
     public static float Money { get { Load(); return cents / 100f; } }
+    /// <summary>Never touched: no money saved, nothing bought, no transactions (a brand-new save).</summary>
+    public static bool Fresh { get { Load(); return !PlayerPrefs.HasKey(MoneyKey) && owned.Count == 0 && history.Count == 0; } }
     public static string MoneyText => Format(Money);
     public static string Format(float dollars) => "$" + dollars.ToString("0.00");
 

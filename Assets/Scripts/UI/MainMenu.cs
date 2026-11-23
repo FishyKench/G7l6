@@ -71,6 +71,7 @@ public class MainMenu : MonoBehaviour
         // the camera breathes and leans a little towards the mouse
         drift += Time.deltaTime;
         Vector2 m = new Vector2(Input.mousePosition.x / Mathf.Max(1, Screen.width) - 0.5f, Input.mousePosition.y / Mathf.Max(1, Screen.height) - 0.5f);
+        m = new Vector2(Mathf.Clamp(m.x, -0.5f, 0.5f), Mathf.Clamp(m.y, -0.5f, 0.5f)); // (the mouse off the window - another screen - mustn't swing the room round)
         Vector3 sway = new Vector3(Mathf.Sin(drift * 0.23f) * 0.06f, Mathf.Sin(drift * 0.31f) * 0.03f, 0f);
         cam.transform.position = Vector3.Lerp(cam.transform.position, camHome + cam.transform.right * (sway.x + m.x * 0.12f) + Vector3.up * (sway.y + m.y * 0.06f), Time.deltaTime * 2f);
         cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, camRot * Quaternion.Euler(-m.y * 3f, m.x * 5f, 0f), Time.deltaTime * 2f);
@@ -158,7 +159,7 @@ public class MainMenu : MonoBehaviour
         UIFactory.Fill(momText.rectTransform, 20, 16, 20, 12);
 
         // the buttons
-        bool hasSave = Campaign.Week > 1 || Campaign.DayIndex > 0 || Wallet.Money > 0.01f;
+        bool hasSave = Campaign.Week > 1 || Campaign.DayIndex > 0 || !Wallet.Fresh; // (a brand-new save just says PLAY)
         string play = hasSave ? $"CONTINUE\n<size=55%>Week {Campaign.Week}, {Campaign.DayName}</size>" : "PLAY";
         float y = -220f;
         Button(play, ref y, HudArt.PaperWhite, 1.4f, Play);
@@ -344,12 +345,11 @@ public class MainMenu : MonoBehaviour
 
     IEnumerator Leave()
     {
-        // push in towards the desk, then 3:00 PM
-        var black = UIFactory.Panel("Black", root, new Color(0f, 0f, 0f, 0f));
-        UIFactory.Fill(black.rectTransform);
-        var stamp = UIFactory.Text("Stamp", root, 150, new Color(0.95f, 0.25f, 0.2f, 0f), TextAlignmentOptions.Center, font);
-        stamp.text = "<b>3:00 PM</b>";
-        UIFactory.Place(stamp.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1000f, 220f));
+        // push in towards the desk, then 3:00 PM - on a card that carries on into the game and only lifts once it's running smoothly
+        var fade = SceneFade.Create(font);
+        var black = fade.black;
+        var stamp = fade.stamp;
+        float volume = PlayerPrefs.GetFloat(VolumePref, 1f);
         var load = SceneManager.LoadSceneAsync(gameScene);
         load.allowSceneActivation = false;
         Vector3 from = cam.transform.position;
@@ -361,6 +361,7 @@ public class MainMenu : MonoBehaviour
             cam.transform.position = Vector3.Lerp(from, to, e);
             cam.transform.rotation = Quaternion.Slerp(fromRot, toRot, e);
             black.color = new Color(0f, 0f, 0f, Mathf.Clamp01((t - 0.45f) * 2f));
+            AudioListener.volume = volume * (1f - Mathf.Clamp01((t - 0.3f) * 1.6f)); // (the room goes quiet)
             if (root) foreach (Transform c in root) if (c != black.transform && c != stamp.transform) c.localScale = Vector3.one * (1f - e * 0.1f);
             yield return null;
         }
@@ -373,6 +374,7 @@ public class MainMenu : MonoBehaviour
         }
         yield return new WaitForSecondsRealtime(0.7f);
         while (load.progress < 0.89f) yield return null;
+        fade.Arm(volume);
         load.allowSceneActivation = true;
     }
 
@@ -1077,3 +1079,82 @@ public class MenuCat : MonoBehaviour
         FloatingWord.Spawn(grumpy ? "hss!" : "purr", (head ? head.position : transform.position) + Vector3.up * 0.25f, grumpy ? HudArt.MarkerRed : new Color(1f, 0.6f, 0.7f), null, 1.4f, 1.4f);
     }
 }
+
+/// <summary>
+/// The black "3:00 PM" card from the menu's PLAY. It lives on through the scene change (the menu goes, the house loads) and
+/// only lifts once the game is up and running smoothly - its first frames are the heavy ones (everything waking up, the first
+/// shadows and shaders) - then fades out over the house, the sound coming up with it. No pop, no frozen frame, no flash.
+/// </summary>
+public class SceneFade : MonoBehaviour
+{
+    public Image black;
+    public TextMeshProUGUI stamp;
+    float volume = 1f;
+    bool armed, revealing;
+
+    public static SceneFade Create(TMP_FontAsset font)
+    {
+        var canvas = UIFactory.CreateCanvas("Scene fade", 32000);
+        DontDestroyOnLoad(canvas.gameObject);
+        var f = canvas.gameObject.AddComponent<SceneFade>();
+        f.black = UIFactory.Panel("Black", canvas.transform, new Color(0f, 0f, 0f, 0f));
+        UIFactory.Fill(f.black.rectTransform);
+        f.black.raycastTarget = true; // (nothing gets clicked underneath while it's up)
+        canvas.gameObject.AddComponent<GraphicRaycaster>();
+        f.stamp = UIFactory.Text("Stamp", canvas.transform, 150, new Color(0.95f, 0.25f, 0.2f, 0f), TextAlignmentOptions.Center, font);
+        f.stamp.text = "<b>3:00 PM</b>";
+        f.stamp.raycastTarget = false;
+        UIFactory.Place(f.stamp.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1000f, 220f));
+        return f;
+    }
+
+    /// <summary>The next scene to load is the game: lift the card once it's settled there.</summary>
+    public void Arm(float listenerVolume)
+    {
+        volume = listenerVolume;
+        armed = true;
+        SceneManager.sceneLoaded += Loaded;
+    }
+
+    void OnDestroy() => SceneManager.sceneLoaded -= Loaded;
+
+    void Loaded(Scene scene, LoadSceneMode mode)
+    {
+        if (!armed || revealing || mode != LoadSceneMode.Single) return;
+        revealing = true;
+        StartCoroutine(Reveal());
+    }
+
+    void Update()
+    {
+        if (armed && !revealing) AudioListener.volume = 0f; // (quiet until the house is ready)
+    }
+
+    IEnumerator Reveal()
+    {
+        // wait for the house to settle: a run of quick frames in a row (or give up waiting after a few seconds)
+        int calm = 0;
+        float waited = 0f;
+        while (calm < 10 && waited < 5f)
+        {
+            AudioListener.volume = 0f;
+            yield return null;
+            waited += Time.unscaledDeltaTime;
+            calm = Time.unscaledDeltaTime < 0.05f ? calm + 1 : 0;
+        }
+        yield return new WaitForSecondsRealtime(0.2f);
+        Color ink = stamp.color;
+        for (float t = 0f; t < 1f; t += Time.unscaledDeltaTime / 1.1f)
+        {
+            float e = Mathf.SmoothStep(0f, 1f, t);
+            stamp.color = new Color(ink.r, ink.g, ink.b, 1f - Mathf.Clamp01(t * 2.2f));
+            stamp.rectTransform.localScale = Vector3.one * (1f + t * 0.08f);
+            black.color = new Color(0f, 0f, 0f, 1f - e);
+            AudioListener.volume = volume * e;
+            yield return null;
+        }
+        AudioListener.volume = volume;
+        Destroy(gameObject);
+    }
+}
+

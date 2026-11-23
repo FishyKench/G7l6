@@ -100,6 +100,7 @@ public static class MainMenuBuilder
             Unlock(go, r.transform);
             // (solid: the cat's laser dot lands on it, she sits on it)
             if (mf.sharedMesh.isReadable && r.GetComponent<MeshCollider>()) go.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh;
+            else if ((r.GetComponent<Collider>() || mf.sharedMesh.isReadable) && Mirrored(go.transform)) { if (mf.sharedMesh.isReadable) go.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh; } // (box colliders can't be mirrored)
             else if (r.GetComponent<Collider>() || mf.sharedMesh.isReadable) go.AddComponent<BoxCollider>();
             copies.Add((r, go));
         }
@@ -135,6 +136,19 @@ public static class MainMenuBuilder
         cam.nearClipPlane = 0.05f;
         cam.fieldOfView = 62f;
         cam.renderingPath = RenderingPath.DeferredShading;
+        // the corkboard covers the left of the screen: turn so the desk sits just right of it (on a 16:9 screen)
+        {
+            cam.aspect = 16f / 9f;
+            float hfov = 2f * Mathf.Atan(Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) * cam.aspect) * Mathf.Rad2Deg;
+            Vector3 deskTop = deskPoint + Vector3.up * 0.55f * s;
+            for (int i = 0; i < 12; i++)
+            {
+                float vx = cam.WorldToViewportPoint(deskTop).x;
+                if (Mathf.Abs(vx - 0.6f) < 0.01f) break;
+                camGo.transform.Rotate(0f, (vx - 0.6f) * hfov * 0.9f, 0f, Space.World);
+            }
+            cam.ResetAspect();
+        }
         camGo.AddComponent<AudioListener>();
         var houseCam = roots.SelectMany(g => g.GetComponentsInChildren<Camera>(true)).FirstOrDefault(c => c.CompareTag("MainCamera")) ?? roots.SelectMany(g => g.GetComponentsInChildren<Camera>(true)).FirstOrDefault();
         var ppl = houseCam ? houseCam.GetComponent<PostProcessLayer>() : null;
@@ -458,6 +472,8 @@ public static class MainMenuBuilder
         mats[name] = m;
         return m;
     }
+
+    static bool Mirrored(Transform t) { var l = t.lossyScale; return l.x < 0f || l.y < 0f || l.z < 0f; }
 
     static GameObject Prim(PrimitiveType type, Transform parent, Vector3 pos, Vector3 size, Material m, Quaternion? rot = null)
     {
