@@ -32,6 +32,7 @@ public class DayManager : MonoBehaviour
         new Text { hour = 17f, message = "Leaving work now. Put things back where they go!" },
         new Text { hour = 17.5f, message = "30 minutes away. It better be clean." },
         new Text { hour = 17.85f, message = "Turning into our street..." },
+        new Text { hour = 17.96f, message = "Pulling into the driveway!" },
     };
 
     [Header("Meltdown")]
@@ -137,6 +138,7 @@ public class DayManager : MonoBehaviour
     void OnTaskEnded(TaskBase task, bool success)
     {
         if (State == Phase.Report || task is MatchTask) return; // the match is scored on its own
+        if (TutorialDay.Active) return;                          // (practice doesn't count)
         if (success) ChoresDone++;
         else
         {
@@ -157,7 +159,7 @@ public class DayManager : MonoBehaviour
         if (debugKeys && Input.GetKeyDown(skipToEveningKey)) SkipToEvening();
 
         UpdatePanic();
-        if (State != Phase.Day) return;
+        if (State != Phase.Day || TutorialDay.Active) return; // (the clock waits while the tutorial runs)
         elapsed += Time.deltaTime;
 
         foreach (var t in texts)
@@ -211,7 +213,11 @@ public class DayManager : MonoBehaviour
         Mom = MomInspector.Spawn(this);
         if (Mom)
         {
+            // you follow her round: no controls, the view walks behind her
+            var escort = MomEscort.Begin(Mom);
+            if (escort) yield return escort.Arrive();
             yield return Mom.Inspect();
+            if (escort) escort.End();
             // a bad day (below a B): she smacks you before the report card
             string g = PreviewGrade();
             if (!Meltdown && g.Length > 0 && (g[0] == 'C' || g[0] == 'D' || g[0] == 'F')) yield return Mom.Smack();
@@ -238,6 +244,7 @@ public class DayManager : MonoBehaviour
         Meltdown = true;
         StopAllCoroutines();
         if (Mom) Mom.Stop();
+        if (MomEscort.Active) MomEscort.Active.End(); // (controls back for the report)
         foreach (var f in CurrentFindings()) caught.Add(f);
         EndDay();
     }

@@ -322,6 +322,9 @@ public class MainMenu : MonoBehaviour
         }
         Wallet.ResetAll(); // (money, shop, mail, channel, campaign - everything back to day one)
         Trophies.ResetAll();
+        PlayerPrefs.DeleteKey(TutorialDay.DoneKey);      // (the tutorial again)
+        Onboarding.ForgetSeen();                          // (and the how-to notes)
+        PlayerPrefs.DeleteKey("G7l6.guide.autoShown");
         PlayerPrefs.Save();
         Play();
     }

@@ -89,6 +89,7 @@ public class CatNavMesh : MonoBehaviour
         var col = source.component as Collider;
         if (!col) return false;
         if (col.isTrigger) return true;
+        if (col.transform.root.name == "Around the house") return true; // (the lawn outside: not the cat's)
         if (col.attachedRigidbody && !col.attachedRigidbody.isKinematic) return true;
         return col.GetComponentInParent<CatBrain>() || col.GetComponentInParent<PlayerMovementAdvanced>() || col.GetComponentInParent<Carryable>()
                || col.GetComponentInParent<HouseDoor>(); // doors open and shut - the cat paws them open

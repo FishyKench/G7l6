@@ -106,11 +106,25 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
         Say($"<color={ErrorColor}>{CatBrain.Name} stepped on the keys!</color>");
     }
 
+    /// <summary>Makes today's homework afresh (the tutorial's short one becomes the real one).</summary>
+    public void Regenerate() => OnActivated();
+
     protected override void OnActivated()
     {
         // today's kind of homework: maths, typing, or both
         int questions = Mathf.Max(1, Tuning.HomeworkQuestions);
         parts.Clear();
+        if (TutorialDay.Active)
+        {
+            // the first day: one easy sum and one short line to copy - you learn both, quickly
+            parts.Add(Part.Maths);
+            parts.Add(Part.Typing);
+            pagesRequired = parts.Count;
+            pagesDone = 0;
+            typos = 0;
+            NewQuestion();
+            return;
+        }
         float roll = Random.value;
         if (roll < 0.4f) for (int i = 0; i < questions; i++) parts.Add(Part.Maths);
         else if (roll < 0.72f) { parts.Add(Part.Typing); if (MathHomework.Level >= 2) parts.Add(Part.Typing); }
@@ -127,8 +141,8 @@ public class TypingTask : TaskBase, IMainTask, IPromptProvider
         answer = "";
         hasError = false;
         position = 0;
-        if (Typing) page = TypingTextGenerator.Generate(minCharsPerPage + 22 * MathHomework.Level);
-        else question = MathHomework.Make(MathHomework.Level);
+        if (Typing) page = TutorialDay.Active ? TypingTextGenerator.Generate(40) : TypingTextGenerator.Generate(minCharsPerPage + 22 * MathHomework.Level);
+        else question = MathHomework.Make(TutorialDay.Active ? 0 : MathHomework.Level);
         ClearInk(); // a clean sheet for every part
         ShowTools(!Typing);
     }

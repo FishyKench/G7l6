@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.Rendering.PostProcessing;
 using UnityEngine.SceneManagement;
 
@@ -16,6 +17,11 @@ using UnityEngine.SceneManagement;
 /// The look: a layer of post-processing on top of the scene's own profiles (they're left as they are): stronger ambient occlusion
 /// (soft contact shadows in corners and under furniture), filmic (ACES) tone mapping with a little more contrast, colour and warmth,
 /// a gentle bloom on lamps and windows, and a soft vignette. Screen-space reflections stay off, as before.
+///
+/// The sky light: the house lights its rooms partly from the sky (ambient "Skybox") but has no generated lighting data. Opened in
+/// the editor Unity works that sky light out on the fly - but loaded from another scene (the main menu), or headless, it comes in
+/// with none: no ambient light, black reflections, everything darker. So when a scene arrives like that, the sky is rendered into a
+/// small cubemap here and the ambient light and reflections are made from it (<see cref="SkyLight"/>).
 /// </summary>
 public static class GraphicsTuning
 {
@@ -28,6 +34,7 @@ public static class GraphicsTuning
     static void Boot()
     {
         Apply();
+        SkyLight();
         SceneManager.sceneLoaded -= OnLoaded;
         SceneManager.sceneLoaded += OnLoaded;
         var go = new GameObject("Graphics tuning");
@@ -36,7 +43,87 @@ public static class GraphicsTuning
         go.AddComponent<Watcher>();
     }
 
-    static void OnLoaded(Scene scene, LoadSceneMode mode) => Apply();
+    static void OnLoaded(Scene scene, LoadSceneMode mode)
+    {
+        Apply();
+        if (mode == LoadSceneMode.Single) SkyLight();
+    }
+
+    // ------------------------------------------------------------------ the sky light
+
+    static Cubemap skyCube;
+
+    /// <summary>
+    /// If the active scene lights itself from the sky but came in without that light worked out (no lighting data), work it out now:
+    /// render the sky alone into a cubemap, sum it into the ambient light (spherical harmonics, at the scene's ambient intensity)
+    /// and use the same cubemap for reflections. Does nothing when the scene already has its sky light.
+    /// </summary>
+    /// <summary>Renders the current skybox alone into this cubemap and sums it into ambient light (spherical harmonics). Also
+    /// says where the sky is brightest (the sun, for a sky with one painted in).</summary>
+    public static SphericalHarmonicsL2 BakeSky(Cubemap cube, float intensity, out Vector3 brightest)
+    {
+        int size = cube.width;
+        var go = new GameObject("Sky capture");
+        var cam = go.AddComponent<Camera>();
+        cam.enabled = false;
+        cam.cullingMask = 0;                     // the sky only
+        cam.clearFlags = CameraClearFlags.Skybox;
+        cam.renderingPath = RenderingPath.Forward;
+        cam.allowHDR = false;
+        cam.RenderToCubemap(cube);
+        Object.Destroy(go);
+        cube.Apply(true);
+
+        // each texel of the sky is a little light from its direction (weighted by the solid angle it covers)
+        var sh = new SphericalHarmonicsL2();
+        Vector3 sun = Vector3.zero; float best = 0f;
+        for (int f = 0; f < 6; f++)
+        {
+            var face = (CubemapFace)f;
+            var px = cube.GetPixels(face);
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f) / size * 2f - 1f, v = (y + 0.5f) / size * 2f - 1f;
+                    Vector3 dir = FaceDir(face, u, -v).normalized;
+                    float solid = 4f / (size * size) / Mathf.Pow(1f + u * u + v * v, 1.5f); // texel solid angle on a cube face
+                    var c = px[y * size + x].linear;
+                    sh.AddDirectionalLight(dir, c, intensity * solid / Mathf.PI);
+                    float lum = c.r * 0.3f + c.g * 0.59f + c.b * 0.11f;
+                    if (lum > best + 0.002f) { best = lum; sun = dir; }
+                    else if (lum > best - 0.002f) sun += dir; // (a clipped sun: the middle of the brightest patch)
+                }
+        }
+        brightest = sun.normalized;
+        return sh;
+    }
+
+    public static void SkyLight()
+    {
+        if (RenderSettings.ambientMode != AmbientMode.Skybox || !RenderSettings.skybox) return;
+        var probe = RenderSettings.ambientProbe;
+        if (Mathf.Abs(probe[0, 0]) + Mathf.Abs(probe[1, 0]) + Mathf.Abs(probe[2, 0]) > 1e-4f) return; // (it's there)
+
+        if (!skyCube) skyCube = new Cubemap(32, TextureFormat.RGBA32, true) { name = "Sky light" };
+        var sh = BakeSky(skyCube, RenderSettings.ambientIntensity, out _);
+        RenderSettings.ambientProbe = sh;
+        if (RenderSettings.defaultReflectionMode == DefaultReflectionMode.Skybox)
+        {
+            RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
+            RenderSettings.customReflection = skyCube;
+        }
+        Debug.Log($"[Graphics] sky light rebuilt for '{SceneManager.GetActiveScene().name}' (no lighting data): ambient {sh[0, 0]:F2}/{sh[1, 0]:F2}/{sh[2, 0]:F2}");
+    }
+
+    static Vector3 FaceDir(CubemapFace face, float u, float v) => face switch
+    {
+        CubemapFace.PositiveX => new Vector3(1f, v, -u),
+        CubemapFace.NegativeX => new Vector3(-1f, v, u),
+        CubemapFace.PositiveY => new Vector3(u, 1f, -v),
+        CubemapFace.NegativeY => new Vector3(u, -1f, v),
+        CubemapFace.PositiveZ => new Vector3(u, v, 1f),
+        _ => new Vector3(-u, v, -1f),
+    };
 
     /// <summary>Cameras made after a scene loads (the VR rig, the debug camera) and the lamp shadows: kept up to date.</summary>
     class Watcher : MonoBehaviour

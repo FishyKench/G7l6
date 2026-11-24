@@ -382,14 +382,7 @@ public partial class PCDesktop
     {
         if (g == null || g.id == "arena" || icons.Exists(i => i.id == "vapor:" + g.id)) return;
         string text = $"{g.title}\n\n{g.tagline}\n\n<size=70%>Installed from Pixel Vault. This game's modes are still being made.</size>";
-        AddIcon("vapor:" + g.id, Title(g.title), text, r =>
-        {
-            Shape(r, g.b, Vector2.zero, new Vector2(60, 60), true);
-            Shape(r, g.a, Vector2.zero, new Vector2(54, 54), true);
-            var t = UIFactory.Text("Initials", r, 22, g.b, TextAlignmentOptions.Center);
-            t.text = "<b>" + Initials(g.title) + "</b>";
-            UIFactory.Fill(t.rectTransform);
-        });
+        AddIcon("vapor:" + g.id, Title(g.title), text, Sketched("cart", g.b, Initials(g.title))); // (a hand-drawn cartridge in the game's colour)
         if (windowLayer) icons[icons.Count - 1].rt.SetSiblingIndex(windowLayer.GetSiblingIndex()); // under the windows
     }
 

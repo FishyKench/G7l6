@@ -58,7 +58,11 @@ public abstract class TaskBase : MonoBehaviour
         ActivatedAt = Time.time;
         StartDeadline(timeLimit);
         OnActivated();
+        Activated?.Invoke(this);
     }
+
+    /// <summary>Any task starting (the guide shows new players the way to their first chore).</summary>
+    public static event System.Action<TaskBase> Activated;
 
     protected virtual void Update()
     {
@@ -112,6 +116,13 @@ public abstract class TaskBase : MonoBehaviour
         OnFailed();
         Ended?.Invoke(this, false);
         GameHUD.Toast(message ?? taskName + " failed!", GameHUD.Bad);
+    }
+
+    /// <summary>Stops it without it counting as done or failed (no message, no report card).</summary>
+    protected void StopQuietly()
+    {
+        IsActive = false;
+        DeadlineRunning = false;
     }
 
     void End()

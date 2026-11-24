@@ -80,7 +80,7 @@ public class Wardrobe : MonoBehaviour, IInteractable, IPromptProvider
                 if (clothes) clothes.ReturnHome(false);
                 AddStack();
                 if (laundry) laundry.ClothesPutAway(quality);
-            }, () => GameHUD.Toast("Stopped folding - the clothes are still in your arms.", GameHUD.Info));
+            }, () => GameHUD.Toast("Stopped folding - the clothes are still in your arms.", GameHUD.Info), TutorialDay.Active ? 1 : 4);
             return;
         }
         open = !open;

@@ -163,6 +163,15 @@ public class DirtyClothesPiece : MonoBehaviour, IInteractable, IPromptProvider
         for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++)
             region[i, j] = Shape(kind, -ext + (i + 0.5f) * cell, -ext + (j + 0.5f) * cell);
+        // no cells touching only at a corner (a slanted sleeve's edge): those pinch points turn into spikes when the edge is smoothed
+        for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i + 1 < n; i++)
+        for (int j = 0; j + 1 < n; j++)
+        {
+            int ra = region[i, j], rb = region[i + 1, j], rc = region[i, j + 1], rd = region[i + 1, j + 1];
+            if (ra > 0 && rd > 0 && rb == 0 && rc == 0) region[i + 1, j] = ra;
+            else if (rb > 0 && rc > 0 && ra == 0 && rd == 0) region[i, j] = rb;
+        }
 
         // Height at each grid corner: thicker inside, thin at the edges, plus wrinkles and folds.
         var verts = new List<Vector3>();
@@ -211,6 +220,12 @@ public class DirtyClothesPiece : MonoBehaviour, IInteractable, IPromptProvider
             var list = tris[r == 2 ? 1 : 0];
             list.AddRange(new[] { a, c, b, b, c, d });
         }
+        // a clean, rounded cut edge (the grid's staircase reads as a ragged fringe, worst once the cloth hangs)
+        var va = verts.ToArray();
+        var everyTri = new List<int>(tris[0]);
+        everyTri.AddRange(tris[1]);
+        SmoothRim(va, everyTri, 12);
+        verts = new List<Vector3>(va);
         var m = new Mesh { name = kind };
         m.SetVertices(verts);
         m.subMeshCount = 2;
@@ -221,10 +236,281 @@ public class DirtyClothesPiece : MonoBehaviour, IInteractable, IPromptProvider
         return m;
     }
 
+    /// <summary>Rounds off a sheet's outer edge in the XZ plane (Taubin smoothing: it doesn't shrink); heights stay as they are.</summary>
+    static void SmoothRim(Vector3[] v, List<int> tris, int iterations)
+    {
+        var edges = new Dictionary<long, int>();
+        for (int t = 0; t < tris.Count; t += 3)
+        for (int e = 0; e < 3; e++)
+        {
+            int p0 = tris[t + e], p1 = tris[t + (e + 1) % 3];
+            long key = p0 < p1 ? ((long)p0 << 32) | (uint)p1 : ((long)p1 << 32) | (uint)p0;
+            edges[key] = edges.TryGetValue(key, out int c) ? c + 1 : 1;
+        }
+        var rim = new Dictionary<int, List<int>>();
+        foreach (var kv in edges)
+        {
+            if (kv.Value != 1) continue;
+            int p0 = (int)(kv.Key >> 32), p1 = (int)(kv.Key & 0xffffffffL);
+            if (!rim.TryGetValue(p0, out var l0)) rim[p0] = l0 = new List<int>();
+            if (!rim.TryGetValue(p1, out var l1)) rim[p1] = l1 = new List<int>();
+            l0.Add(p1); l1.Add(p0);
+        }
+        var nv = new Vector3[v.Length];
+        for (int it = 0; it < iterations * 2; it++)
+        {
+            float k = it % 2 == 0 ? 0.55f : -0.57f;
+            System.Array.Copy(v, nv, v.Length);
+            foreach (var kv in rim)
+            {
+                Vector3 avg = Vector3.zero;
+                foreach (int o in kv.Value) avg += v[o];
+                avg /= kv.Value.Count;
+                var p = v[kv.Key];
+                nv[kv.Key] = new Vector3(p.x + (avg.x - p.x) * k, p.y, p.z + (avg.z - p.z) * k);
+            }
+            System.Array.Copy(nv, v, v.Length);
+        }
+    }
+
+    // ------------------------------------------------------------------ clean laundry: a neat stack of folded clothes
+
+    /// <summary>
+    /// A stack of folded clothes (bottom at y = 0, centred), one per (kind, colour): soft puffy folded shapes with a crease, a
+    /// collar on the shirts and tops, a waistband on the jeans. 'size' is the folded footprint's width in metres.
+    /// Two submeshes per garment (fabric, details); 'mats' matches them.
+    /// </summary>
+    internal static Mesh FoldedStack(List<(string kind, Color colour)> items, float size, out Material[] mats)
+    {
+        var verts = new List<Vector3>();
+        var subs = new List<List<int>>();
+        var matList = new List<Material>();
+        var rng = new System.Random(items.Count * 31 + 7);
+        float y = 0f;
+        for (int i = 0; i < items.Count; i++)
+        {
+            var (kind, colour) = items[i];
+            bool jeans = kind == "trousers";
+            float w = size * (jeans ? 0.86f : 1f), d = size * (jeans ? 1.12f : 1.05f), t = size * (jeans ? 0.13f : 0.11f);
+            if (kind == "socks") { w = size * 0.42f; d = size * 0.36f; t = size * 0.15f; }
+            float jx = ((float)rng.NextDouble() - 0.5f) * size * 0.06f, jz = ((float)rng.NextDouble() - 0.5f) * size * 0.06f;
+            float yaw = ((float)rng.NextDouble() - 0.5f) * 10f;
+            var rot = Quaternion.Euler(0f, yaw, 0f);
+            Vector3 at = new Vector3(jx, y, jz);
+            var fabric = new List<int>();
+            var detail = new List<int>();
+            Pillow(verts, fabric, w, d, t, rot, at, jeans);
+            if (kind == "socks") { }
+            else if (jeans) Band(verts, detail, w, d, t, rot, at);                 // waistband along the top fold
+            else Collar(verts, detail, w, d, t, rot, at, kind == "hoodie");        // collar / hood edge
+            subs.Add(fabric); subs.Add(detail);
+            var bright = Color.Lerp(colour, Color.white, 0.1f);                    // fresh out of the wash
+            var mm = Materials(kind, bright);
+            matList.Add(mm[0]); matList.Add(mm[1]);
+            y += t * 0.94f;                                                        // (each one squashes the one under it a touch)
+        }
+        var m = new Mesh { name = "Folded clothes" };
+        m.SetVertices(verts);
+        m.subMeshCount = subs.Count;
+        for (int i = 0; i < subs.Count; i++) m.SetTriangles(subs[i], i);
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+        mats = matList.ToArray();
+        return m;
+    }
+
+    /// <summary>A folded garment: a rounded-rectangle outline, soft rounded edges, a slightly domed top with a fold crease.</summary>
+    static void Pillow(List<Vector3> verts, List<int> tris, float w, float d, float t, Quaternion rot, Vector3 at, bool jeans)
+    {
+        const int N = 56;   // round the outline
+        const int R = 7;    // rings from the edge in to the middle
+        float corner = Mathf.Min(w, d) * 0.16f;
+        // outline point i (a rounded rectangle), as a direction scaled 0..1 to the edge
+        Vector2 Edge(int i)
+        {
+            float a = i / (float)N * Mathf.PI * 2f;
+            float cx = Mathf.Cos(a), cz = Mathf.Sin(a);
+            // superellipse: squarish with soft corners
+            const float n = 8f;
+            float r = Mathf.Pow(Mathf.Pow(Mathf.Abs(cx), n) + Mathf.Pow(Mathf.Abs(cz), n), -1f / n);
+            return new Vector2(cx * r * (w * 0.5f), cz * r * (d * 0.5f));
+        }
+        int Add(Vector3 p) { verts.Add(at + rot * p); return verts.Count - 1; }
+        // the folds: one across it, and (a shirt) where the sleeves fold under, or (jeans) the seam down the middle
+        float Crease(float x, float z)
+        {
+            float c = 0.16f * t * Mathf.Exp(-(z - d * 0.14f) * (z - d * 0.14f) / (d * d * 0.004f));
+            if (jeans) c += 0.1f * t * Mathf.Exp(-x * x / (w * w * 0.0015f));
+            else { float ax = Mathf.Abs(x) - w * 0.27f; c += 0.12f * t * Mathf.Exp(-ax * ax / (w * w * 0.0018f)); }
+            return c;
+        }
+        // the sides: bottom ring (tucked in a little), a bulging middle ring, the top edge ring
+        var rings = new List<int[]>();
+        float[] sideY = { 0f, t * 0.45f, t * 0.84f };
+        float[] sideIn = { corner * 0.35f, 0f, corner * 0.22f };
+        foreach (var (sy, si) in new[] { (sideY[0], sideIn[0]), (sideY[1], sideIn[1]), (sideY[2], sideIn[2]) })
+        {
+            var ring = new int[N];
+            for (int i = 0; i < N; i++)
+            {
+                var e = Edge(i);
+                float len = e.magnitude;
+                var p = len > 1e-5f ? e * ((len - si) / len) : e;
+                ring[i] = Add(new Vector3(p.x, sy, p.y));
+            }
+            rings.Add(ring);
+        }
+        // the top: rings in towards the middle, domed, with the crease
+        for (int r = 1; r <= R; r++)
+        {
+            float f = 1f - r / (float)R;                              // 1 at the edge, 0 at the middle
+            var ring = new int[N];
+            for (int i = 0; i < N; i++)
+            {
+                var e = Edge(i);
+                float len = e.magnitude;
+                float inset = sideIn[2] + (len - sideIn[2]) * (1f - f);
+                var p = len > 1e-5f ? e * ((len - inset) / len) : e;
+                float dome = t * (0.84f + 0.16f * Mathf.Sqrt(1f - f * f));
+                ring[i] = Add(new Vector3(p.x, dome - Crease(p.x, p.y), p.y));
+            }
+            rings.Add(ring);
+        }
+        for (int k = 0; k + 1 < rings.Count; k++)
+        for (int i = 0; i < N; i++)
+        {
+            int j = (i + 1) % N;
+            int a = rings[k][i], b = rings[k][j], c = rings[k + 1][i], dd = rings[k + 1][j];
+            tris.AddRange(new[] { a, c, b, b, c, dd });
+        }
+        // cap the middle and the bottom
+        var last = rings[rings.Count - 1];
+        int mid = Add(new Vector3(0f, t - Crease(0f, 0f), 0f));
+        for (int i = 0; i < N; i++) tris.AddRange(new[] { last[i], mid, last[(i + 1) % N] });
+        int bot = Add(Vector3.zero);
+        var first = rings[0];
+        for (int i = 0; i < N; i++) tris.AddRange(new[] { first[(i + 1) % N], bot, first[i] });
+    }
+
+    /// <summary>A round collar on top of a folded shirt (near its top edge): a little curved tube.</summary>
+    static void Collar(List<Vector3> verts, List<int> tris, float w, float d, float t, Quaternion rot, Vector3 at, bool hood)
+    {
+        int segs = 16, around = 8;
+        float rad = w * (hood ? 0.17f : 0.13f), tube = t * (hood ? 0.3f : 0.2f);
+        Vector3 centre = new Vector3(0f, t * 0.93f, d * 0.5f - rad * 0.3f);
+        int start = verts.Count;
+        for (int s = 0; s <= segs; s++)
+        {
+            float a = Mathf.Lerp(-Mathf.PI * 0.95f, -Mathf.PI * 0.05f, s / (float)segs); // a U round the neck: open at the top edge, rounding in towards the middle
+            Vector3 c = centre + new Vector3(Mathf.Cos(a) * rad, 0f, Mathf.Sin(a) * rad * 0.8f);
+            Vector3 outDir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a) * 0.8f).normalized;
+            for (int k = 0; k < around; k++)
+            {
+                float b = k / (float)around * Mathf.PI * 2f;
+                Vector3 p = c + (outDir * Mathf.Cos(b) * 1.3f + Vector3.up * Mathf.Sin(b) * 0.55f) * tube;
+                verts.Add(at + rot * p);
+            }
+        }
+        for (int s = 0; s < segs; s++)
+        for (int k = 0; k < around; k++)
+        {
+            int k2 = (k + 1) % around;
+            int a = start + s * around + k, b = start + s * around + k2, c = start + (s + 1) * around + k, dd = start + (s + 1) * around + k2;
+            tris.AddRange(new[] { a, b, c, b, dd, c });
+        }
+    }
+
+    /// <summary>The jeans' waistband: a slightly raised strip along the top edge, with a button.</summary>
+    static void Band(List<Vector3> verts, List<int> tris, float w, float d, float t, Quaternion rot, Vector3 at)
+    {
+        float bw = w * 0.84f, bd = d * 0.09f, h = t * 0.08f;
+        Vector3 c = new Vector3(0f, t * 0.99f, d * 0.5f - bd * 0.5f - d * 0.06f);
+        Box(verts, tris, c, new Vector3(bw, h * 2f, bd), rot, at);
+        Box(verts, tris, c + new Vector3(bw * 0.3f, h * 1.3f, 0f), new Vector3(bd * 0.45f, h * 1.6f, bd * 0.45f), rot, at);
+    }
+
+    static void Box(List<Vector3> verts, List<int> tris, Vector3 c, Vector3 size, Quaternion rot, Vector3 at)
+    {
+        Vector3 h = size * 0.5f;
+        var faces = new[] { (Vector3.up, Vector3.right, Vector3.forward), (Vector3.down, Vector3.forward, Vector3.right),
+                            (Vector3.right, Vector3.forward, Vector3.up), (Vector3.left, Vector3.up, Vector3.forward),
+                            (Vector3.forward, Vector3.up, Vector3.right), (Vector3.back, Vector3.right, Vector3.up) };
+        foreach (var (n, u, v) in faces)
+        {
+            int s0 = verts.Count;
+            Vector3 fc = c + Vector3.Scale(n, h);
+            Vector3 du = Vector3.Scale(u, h), dv = Vector3.Scale(v, h);
+            verts.Add(at + rot * (fc - du - dv)); verts.Add(at + rot * (fc + du - dv));
+            verts.Add(at + rot * (fc + du + dv)); verts.Add(at + rot * (fc - du + dv));
+            tris.AddRange(new[] { s0, s0 + 2, s0 + 1, s0, s0 + 3, s0 + 2 });
+        }
+    }
+
     // ------------------------------------------------------------------ shared with the wardrobe / folding game
 
     /// <summary>0 outside, 1 fabric, 2 details - the garment's outline (x across, z from hem to collar, about -0.52..0.52).</summary>
     internal static int ShapeAt(string kind, float x, float z) => Shape(kind, x, z);
+
+    /// <summary>A garment kind for the i-th piece (as the floor pieces cycle through them).</summary>
+    internal static string KindFor(int i) => Kinds[((i % Kinds.Length) + Kinds.Length) % Kinds.Length];
+
+    /// <summary>The garment crumpled and draped over a rounded heap (like it's on the armful you're carrying): the fold
+    /// runs across it, both ends hang down, the sleeves droop. Two-sided. 'size' scales the garment, 'radius' is the
+    /// heap it's draped over. Submesh 0 fabric, 1 details.</summary>
+    internal static Mesh DrapedGarment(string kind, int seed, float size, float radius)
+    {
+        var flat = Garment(kind, seed);
+        var rng = new System.Random(seed + 7);
+        float fold = (float)(rng.NextDouble() - 0.5) * 0.14f;
+        var v = flat.vertices;
+        const float quarter = Mathf.PI * 0.5f;
+        for (int i = 0; i < v.Length; i++)
+        {
+            float x = v[i].x * size, h = v[i].y * size * 1.1f, z = (v[i].z - fold) * size;
+            float r = radius + h, a = z / radius;
+            Vector3 p;
+            a = Mathf.Sign(a) * Mathf.Min(Mathf.Abs(a), 1.15f) + Mathf.Sign(a) * Mathf.Max(0f, Mathf.Abs(a) - 1.15f) * 0.15f; // (it lies over the pile: no flapping ends)
+            if (Mathf.Abs(a) <= quarter) p = new Vector3(x, r * Mathf.Cos(a) - radius, r * Mathf.Sin(a));
+            else
+            {
+                // past the side of the heap it hangs down, flaring out a little
+                float extra = (Mathf.Abs(a) - quarter) * radius, sg = Mathf.Sign(a);
+                p = new Vector3(x, -radius - extra * 0.7f, sg * (r + extra * 0.3f));
+            }
+            float over = Mathf.Max(0f, Mathf.Abs(x) - 0.12f);
+            p.y -= over * over * 1.5f;                       // sleeves / legs droop a little
+            p.x = Mathf.Sign(p.x) * (Mathf.Min(Mathf.Abs(p.x), 0.12f) + over * 0.55f); // ...and tuck in towards the heap
+            v[i] = p;
+        }
+        var front = new Mesh();
+        front.SetVertices(v);
+        front.subMeshCount = 2;
+        front.SetTriangles(flat.GetTriangles(0), 0);
+        front.SetTriangles(flat.GetTriangles(1), 1);
+        front.RecalculateNormals();
+        var nrm = front.normals;
+        var tris = new[] { front.GetTriangles(0), front.GetTriangles(1) };
+        Object.Destroy(flat);
+        Object.Destroy(front);
+
+        // the underside: the same sheet, a hair below, facing the other way (so no holes from any angle)
+        int n = v.Length;
+        var verts = new List<Vector3>(v);
+        for (int i = 0; i < n; i++) verts.Add(v[i] - nrm[i] * 0.004f);
+        var m = new Mesh { name = kind + " (draped)" };
+        m.SetVertices(verts);
+        m.subMeshCount = 2;
+        for (int s = 0; s < 2; s++)
+        {
+            var t = new List<int>(tris[s]);
+            int c = t.Count;
+            for (int k = 0; k < c; k += 3) { t.Add(t[k] + n); t.Add(t[k + 2] + n); t.Add(t[k + 1] + n); }
+            m.SetTriangles(t, s);
+        }
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+        return m;
+    }
 
     internal static Color RandomColour(string kind) => kind == "trousers" ? Jeans[Random.Range(0, Jeans.Length)] : Colours[Random.Range(0, Colours.Length)];
 

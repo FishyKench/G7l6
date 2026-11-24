@@ -304,6 +304,8 @@ public partial class CatBrain
         yield return Idle(Random.Range(1.5f, 3f));
     }
 
+    // (the tutorial's little show: CatBrain.Show.cs)
+
     // ------------------------------------------------------------------ dinner
 
     IEnumerator EatDinner(Cooking cooking)

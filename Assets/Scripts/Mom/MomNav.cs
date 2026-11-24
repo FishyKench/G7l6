@@ -71,7 +71,8 @@ public static class MomNav
     {
         if (c is Collider col && col.isTrigger) return true;
         if (c.GetComponentInParent<Carryable>() || c.GetComponentInParent<PlayerMovementAdvanced>() || c.GetComponentInParent<MomInspector>()) return true;
-        if (c.GetComponentInParent<CatBrain>()) return true;
+        if (c.GetComponentInParent<CatBrain>()) return true;
+        if (c.transform.root.name == "Around the house") return true; // (the lawn outside isn't hers to walk)
         for (var t = c.transform; t; t = t.parent)
             if (t.name == "Doors" || t.name == "Garage door") return true; // the doors themselves (not the walls round them)
         return false;

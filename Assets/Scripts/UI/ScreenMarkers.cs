@@ -43,6 +43,7 @@ public class ScreenMarkers : MonoBehaviour
     /// <summary>Shows (this frame) a marker 'key' at 'world' with 'label'. 'big' = the one that matters most right now.</summary>
     public static void Show(string key, Vector3 world, string label, Color colour, bool big = false)
     {
+        if (MomEscort.Active) return; // (no tags while you're following Mom round)
         var self = Get();
         if (!self.markers.TryGetValue(key, out var m)) m = self.markers[key] = self.Make(key);
         m.world = world;

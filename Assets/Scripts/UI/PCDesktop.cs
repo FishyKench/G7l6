@@ -63,6 +63,8 @@ public partial class PCDesktop : MonoBehaviour
     {
         if (!root) Build();
         root.SetActive(true);
+        ShowHomeworkCircle();
+        TutorialOnShow();
         if (startUser) startUser.text = "<b>You</b>\n<size=70%><color=#FFFFFF88>Ranked: " + Campaign.RankText + "</color></size>";
         startMenu.gameObject.SetActive(false);
     }
@@ -83,6 +85,7 @@ public partial class PCDesktop : MonoBehaviour
         mouse.y = Mathf.Clamp(mouse.y, 0f, ScreenH - 4f);
         cursor.anchoredPosition = mouse;
         cursor.SetAsLastSibling();
+        if (TutorialUpdate()) return; // (the tutorial's clip is playing: it has the mouse)
         clock.text = ClockText();
         UpdateLauncher();
         UpdateStore();
@@ -188,6 +191,7 @@ public partial class PCDesktop : MonoBehaviour
     {
         if (id == "homework")
         {
+            ClearHomeworkCircle();
             if (!homeworkWin.open && pc.Homework) pc.Homework.ShowIn(homeworkWin.content);
             Focus(Opened(homeworkWin));
             return;
@@ -531,11 +535,11 @@ public partial class PCDesktop : MonoBehaviour
         screen.gameObject.AddComponent<RectMask2D>();
         Wallpaper();
 
-        AddIcon("homework", "Homework", null, DrawHomework);
-        AddIcon("game", "Ranked Arena", null, DrawGame);
-        AddIcon("browser", "Browser", "47 tabs open.\nClosing them would take effort.", DrawBrowser);
-        AddIcon("store", "Pixel Vault", null, DrawStore);
-        AddIcon("clips", "Clip Studio", null, DrawClips);
+        AddIcon("homework", "Homework", null, Sketched("homework"));
+        AddIcon("game", "Ranked Arena", null, Sketched("game"));
+        AddIcon("browser", "Browser", "47 tabs open.\nClosing them would take effort.", Sketched("browser"));
+        AddIcon("store", "Pixel Vault", null, Sketched("store"));
+        AddIcon("clips", "Clip Studio", null, Sketched("clips"));
 
         foreach (var g in Catalogue) if (Owns(g)) AddGameIcon(g);
         windowLayer = UIFactory.Rect("Windows", screen);
@@ -587,15 +591,15 @@ public partial class PCDesktop : MonoBehaviour
         var cell = UIFactory.Rect(label, screen);
         cell.anchorMin = cell.anchorMax = new Vector2(0f, 1f);
         cell.pivot = new Vector2(0f, 1f);
-        cell.anchoredPosition = new Vector2(18 + column * 118, -16 - row * 128);
-        cell.sizeDelta = new Vector2(108, 118);
+        cell.anchoredPosition = new Vector2(18 + column * 126, -14 - row * 134);
+        cell.sizeDelta = new Vector2(118, 128);
         var highlight = UIFactory.Panel("Selected", cell, new Color(0.45f, 0.7f, 1f, 0.35f));
         highlight.sprite = Round();
         highlight.type = Image.Type.Sliced;
         UIFactory.Fill(highlight.rectTransform);
         highlight.enabled = false;
         var art = UIFactory.Rect("Icon", cell);
-        UIFactory.Place(art, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -10), new Vector2(64, 64));
+        UIFactory.Place(art, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -6), new Vector2(84, 84));
         draw(art);
         var shadow = UIFactory.Text("Shadow", cell, 16, new Color(0f, 0f, 0f, 0.7f), TextAlignmentOptions.Top);
         shadow.text = label;
@@ -664,6 +668,69 @@ public partial class PCDesktop : MonoBehaviour
         int h = Mathf.FloorToInt(hour), m = Mathf.FloorToInt((hour - h) * 60f);
         return $"{(h > 12 ? h - 12 : h)}:{m:00} {(h >= 12 ? "PM" : "AM")}";
     }
+
+    // ------------------------------------------------------------------ "do this first": Homework circled in marker
+
+    const string CircledPref = "G7l6.pc.homeworkCircled";
+    RectTransform homeworkCircle;
+
+    /// <summary>The first time you sit down at the PC with homework due, Homework is circled in red marker - Mom's "this first".</summary>
+    void ShowHomeworkCircle()
+    {
+        if (homeworkCircle || PlayerPrefs.GetInt(CircledPref, 0) == 1 || TutorialDay.Active) return; // (the tutorial points at it its own way)
+        var task = FindObjectOfType<TypingTask>();
+        if (!task || !task.IsActive) return;
+        var icon = icons.Find(i => i.id == "homework");
+        if (icon == null) return;
+        homeworkCircle = UIFactory.Rect("Circled", icon.rt);
+        homeworkCircle.gameObject.AddComponent<PcSketchKeep>();
+        UIFactory.Place(homeworkCircle, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 4), new Vector2(150, 150));
+        var ring = UIFactory.Rect("Ring", homeworkCircle).gameObject.AddComponent<RawImage>();
+        ring.texture = SketchIcons.Get("circle");
+        ring.raycastTarget = false;
+        UIFactory.Fill(ring.rectTransform);
+        var note = UIFactory.Text("Note", homeworkCircle, 24, new Color(0.88f, 0.16f, 0.2f), TextAlignmentOptions.MidlineLeft, GameHUD.Instance ? GameHUD.Instance.font : null);
+        note.text = "<b>this first!</b>\n<size=70%>- Mom</size>";
+        note.raycastTarget = false;
+        UIFactory.Place(note.rectTransform, new Vector2(1f, 0.5f), new Vector2(0f, 0.5f), new Vector2(4, 18), new Vector2(150, 64));
+        note.rectTransform.localRotation = Quaternion.Euler(0, 0, 6f);
+        StartCoroutine(PopIn(homeworkCircle));
+    }
+
+    System.Collections.IEnumerator PopIn(RectTransform rt)
+    {
+        for (float t = 0f; t < 1f && rt; t += Time.unscaledDeltaTime / 0.35f)
+        {
+            float e = 1f - (1f - t) * (1f - t);
+            rt.localScale = Vector3.one * Mathf.LerpUnclamped(0.6f, 1f, e + Mathf.Sin(t * Mathf.PI) * 0.15f);
+            yield return null;
+        }
+        if (rt) rt.localScale = Vector3.one;
+    }
+
+    void ClearHomeworkCircle()
+    {
+        if (!homeworkCircle) return;
+        Destroy(homeworkCircle.gameObject);
+        homeworkCircle = null;
+        PlayerPrefs.SetInt(CircledPref, 1); // (once you've found it, you know)
+    }
+
+    /// <summary>A hand-drawn app icon (SketchIcons), filling the icon's square. Kept out of the PC's recolouring.</summary>
+    static System.Action<RectTransform> Sketched(string id, Color tint = default, string initials = null) => r =>
+    {
+        var img = UIFactory.Rect("Sketch", r).gameObject.AddComponent<RawImage>();
+        img.texture = SketchIcons.Get(id, tint);
+        img.raycastTarget = false;
+        UIFactory.Fill(img.rectTransform);
+        if (!string.IsNullOrEmpty(initials))
+        {
+            var t = UIFactory.Text("Initials", r, 22, PcSketch.Ink, TextAlignmentOptions.Center);
+            t.text = "<b>" + initials + "</b>";
+            UIFactory.Place(t.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 6), new Vector2(46, 34));
+            t.enableAutoSizing = true; t.fontSizeMin = 10; t.fontSizeMax = 22;
+        }
+    };
 
     // ------------------------------------------------------------------ icon drawings (simple shapes)
 

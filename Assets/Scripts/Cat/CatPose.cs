@@ -74,51 +74,51 @@ public class CatPose : MonoBehaviour
         hip.position -= transform.TransformVector(new Vector3(0f, drop, 0f));
         hip.rotation = Quaternion.AngleAxis(-9f * e * (1f - zz * 0.6f), right) * hip.rotation;
 
-        // 2. the head (first: the front legs hang off the chest bone it moves): up and alert when lying awake; asleep, down on the paws, turned in towards the tail
+        // 2. the head (first: the front legs hang off the chest bone it moves) - turned only round the cat's own sideways and
+        //    upright axes, so it can never twist: awake, raised and alert; asleep, lowered onto the paws and turned in a little
         if (neck && head)
         {
-            if (zz > 0.001f)
-            {
-                Aim(neck, head, new Vector3(tailSide * 0.35f, -0.45f, 0.8f), zz);
-                if (jaw) Aim(head, jaw, new Vector3(tailSide * 0.55f, -0.8f, 0.35f), zz);
-            }
-            if (e * (1f - zz) > 0.001f) Aim(neck, head, new Vector3(0f, 0.5f, 0.85f), e * (1f - zz) * 0.6f);
+            neck.rotation = Quaternion.AngleAxis(-18f * e * (1f - zz) + 30f * zz, right) * neck.rotation;
+            head.rotation = Quaternion.AngleAxis(tailSide * 28f * zz, up) * Quaternion.AngleAxis(12f * zz, right) * head.rotation;
         }
 
         // 3. the back legs fold up under the hips: thigh forward and down, shin back along the floor, paw flat forward
-        Fold(hindL, -1f, e, new[] { new Vector3(0.3f, -0.6f, 0.75f), new Vector3(0.1f, -0.35f, -0.95f), new Vector3(0.05f, -0.05f, 1f), new Vector3(0f, -0.1f, 1f) });
-        Fold(hindR, 1f, e, new[] { new Vector3(0.3f, -0.6f, 0.75f), new Vector3(0.1f, -0.35f, -0.95f), new Vector3(0.05f, -0.05f, 1f), new Vector3(0f, -0.1f, 1f) });
+        Fold(hindL, e, new[] { new Vector2(0.75f, -0.6f), new Vector2(-0.95f, -0.3f), new Vector2(1f, -0.08f), new Vector2(1f, -0.1f) });
+        Fold(hindR, e, new[] { new Vector2(0.75f, -0.6f), new Vector2(-0.95f, -0.3f), new Vector2(1f, -0.08f), new Vector2(1f, -0.1f) });
         // 4. the front legs tuck in: upper arm back under the chest, forearm and paw forward along the floor
-        Fold(frontL, -1f, e, new[] { new Vector3(0.12f, -0.45f, -0.9f), new Vector3(0.05f, -0.06f, 1f), new Vector3(0.08f, -0.05f, 1f) });
-        Fold(frontR, 1f, e, new[] { new Vector3(0.12f, -0.45f, -0.9f), new Vector3(0.05f, -0.06f, 1f), new Vector3(-0.02f, -0.05f, 1f) });
+        Fold(frontL, e, new[] { new Vector2(-0.9f, -0.45f), new Vector2(1f, -0.06f), new Vector2(1f, -0.05f) });
+        Fold(frontR, e, new[] { new Vector2(-0.9f, -0.45f), new Vector2(1f, -0.06f), new Vector2(1f, -0.05f) });
 
-        // 5. the tail drops to the floor and curls round her side (a lazy flick at the tip when she's awake)
+        // 5. the tail: down to the floor and straight back, then curled round her side a bit more at every joint
         if (tail != null)
             for (int i = 0; i < tail.Length - 1; i++)
             {
-                float curl = tailSide * i * (30f + 6f * zz);
-                if (i == tail.Length - 2) curl += Mathf.Sin(Time.time * 2.2f) * 12f * (1f - zz);
-                Vector3 dir = Quaternion.AngleAxis(curl, Vector3.up) * new Vector3(0f, i == 0 ? -0.55f : -0.06f, -1f);
-                Aim(tail[i], tail[i + 1], dir, e);
+                Hinge(tail[i], tail[i + 1], new Vector2(-1f, i == 0 ? -0.5f : -0.04f), e);
+                float curl = tailSide * (i == 0 ? 10f : 24f + 6f * zz);
+                if (i == tail.Length - 2) curl += Mathf.Sin(Time.time * 2.2f) * 10f * (1f - zz); // (a lazy flick at the tip, awake)
+                tail[i].rotation = Quaternion.AngleAxis(curl * e, up) * tail[i].rotation;
             }
 
         foreach (var t in touched) wrote[t] = (t.localPosition, t.localRotation);
     }
 
-    /// <summary>Points each bone of a leg along a direction in the cat's own frame (x mirrored for the side).</summary>
-    void Fold(Transform[] chain, float side, float weight, Vector3[] dirs)
+    /// <summary>Folds a leg joint by joint, each as a hinge round the cat's sideways axis (directions are (forward, up) in the
+    /// cat's frame). The legs keep their own spread and never twist.</summary>
+    void Fold(Transform[] chain, float weight, Vector2[] dirs)
     {
         if (chain == null) return;
-        for (int i = 0; i < chain.Length - 1 && i < dirs.Length; i++)
-            Aim(chain[i], chain[i + 1], new Vector3(dirs[i].x * side, dirs[i].y, dirs[i].z), weight);
+        for (int i = 0; i < chain.Length - 1 && i < dirs.Length; i++) Hinge(chain[i], chain[i + 1], dirs[i], weight);
     }
 
-    void Aim(Transform bone, Transform child, Vector3 localDir, float weight)
+    /// <summary>Turns a bone round the cat's sideways axis only, until it points along (forward, up) in the cat's frame.</summary>
+    void Hinge(Transform bone, Transform child, Vector2 fwdUp, float weight)
     {
-        Vector3 now = child.position - bone.position;
-        if (now.sqrMagnitude < 1e-10f || weight <= 0f) return;
-        Vector3 want = transform.TransformDirection(localDir.normalized);
-        var turn = Quaternion.FromToRotation(now.normalized, want);
-        bone.rotation = Quaternion.Slerp(Quaternion.identity, turn, weight) * bone.rotation;
+        if (weight <= 0f) return;
+        Vector3 right = transform.right;
+        Vector3 now = Vector3.ProjectOnPlane(child.position - bone.position, right);
+        if (now.sqrMagnitude < 1e-10f) return;
+        Vector3 want = transform.forward * fwdUp.x + transform.up * fwdUp.y;
+        float angle = Vector3.SignedAngle(now, want, right);
+        bone.rotation = Quaternion.AngleAxis(angle * weight, right) * bone.rotation;
     }
 }

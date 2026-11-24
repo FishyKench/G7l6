@@ -14,7 +14,8 @@ using UnityEngine.UI;
 /// </summary>
 public class FoldMinigame : MonoBehaviour, IMainTask
 {
-    const int Garments = 4, FoldsEach = 3;
+    const int FoldsEach = 3;
+    int Garments = 4;
     const float Window = 0.2f;        // seconds either side of the beat that count as on time
     const float Ext = 0.55f;          // garment coordinates shown: -Ext..Ext
     const float GarmentPx = 330f;     // on-screen size of the garment drawing
@@ -52,10 +53,11 @@ public class FoldMinigame : MonoBehaviour, IMainTask
     static Sprite ringSprite, dashSprite;
 
     /// <summary>Starts folding (locks the player while it runs). done(quality 0..1) or cancelled().</summary>
-    public static bool Begin(System.Action<float> done, System.Action cancelled)
+    public static bool Begin(System.Action<float> done, System.Action cancelled, int garments = 4)
     {
         if (!PlayerInteraction.Instance) { done?.Invoke(1f); return true; }
         if (!instance) instance = new GameObject("Fold minigame").AddComponent<FoldMinigame>();
+        instance.Garments = Mathf.Clamp(garments, 1, 4);
         instance.onDone = done;
         instance.onCancel = cancelled;
         return PlayerInteraction.Instance.BeginMainTask(instance);
@@ -127,7 +129,7 @@ public class FoldMinigame : MonoBehaviour, IMainTask
         garmentRt.localRotation = Quaternion.identity;
         garmentRt.localScale = Vector3.one;
         wrinkle.enabled = false;
-        beatLength = Mathf.Lerp(1.3f, 0.85f, garmentIndex / (float)(Garments - 1));
+        beatLength = Mathf.Lerp(1.3f, 0.85f, garmentIndex / (float)Mathf.Max(1, Garments - 1));
         counter.text = $"{garmentIndex + 1} / {Garments}";
         NextFold();
     }

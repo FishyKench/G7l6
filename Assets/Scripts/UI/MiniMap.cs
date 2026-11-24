@@ -22,6 +22,7 @@ public class MiniMap : MonoBehaviour
     public float viewMetres = 8f;
 
     const float CardWidth = 300f, RowHeight = 24f, ToolRowHeight = 19f;
+    const bool ShowTaskList = false; // the list of tasks under the map - off: it only repeated the to-do notes
     const float PillWidth = 76f, PillGap = 8f;
 
     static readonly Color Ink = new Color32(34, 32, 42, 255);
@@ -494,7 +495,7 @@ public class MiniMap : MonoBehaviour
         int used = 0;
         foreach (var e in entries)
         {
-            if (!HudFocus.Full) break; // the list repeats the to-do notes: only while Tab is held
+            if (!ShowTaskList) break; // (no task list on the map: the to-do notes are the list)
             if (used >= rowPool.Count) rowPool.Add(NewRow());
             var row = rowPool[used++];
             if (!row.root.gameObject.activeSelf) row.root.gameObject.SetActive(true);

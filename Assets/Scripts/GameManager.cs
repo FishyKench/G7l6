@@ -38,6 +38,9 @@ public class GameManager : MonoBehaviour
         // Each room has several lights: let every object use enough of them, or neighbouring walls light differently.
         if (QualitySettings.pixelLightCount < 12) QualitySettings.pixelLightCount = 12;
         if (!FindObjectOfType<ItemFinder>()) gameObject.AddComponent<ItemFinder>(); // hold Tab to see where things are
+        if (!FindObjectOfType<TaskGuide>()) gameObject.AddComponent<TaskGuide>();
+        if (!FindObjectOfType<TutorialDay>()) gameObject.AddComponent<TutorialDay>();
+        if (!GameObject.Find("Around the house")) TownKit.AroundHouse(HouseLayout.Instance); // the neighbourhood out of the windows // the very first Monday: one thing at a time // ...and the whole to-do list; a number lays footprints to that job
         if (!FindObjectOfType<PauseMenu>()) gameObject.AddComponent<PauseMenu>();   // Esc / P
         if (!FindObjectOfType<MailRuntime>()) gameObject.AddComponent<MailRuntime>(); // MyMail: Mom's jobs, delivery notices (before ShopRuntime so it hears the morning delivery)
         if (!FindObjectOfType<ShopRuntime>()) gameObject.AddComponent<ShopRuntime>(); // ShopNest deliveries + gadgets

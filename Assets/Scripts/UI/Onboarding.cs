@@ -17,6 +17,28 @@ public class Onboarding : MonoBehaviour
 {
     /// <summary>The intro is on screen (the game is paused, the pause menu stays shut).</summary>
     public static bool Showing { get; private set; }
+    public static Onboarding Instance { get; private set; }
+    /// <summary>Show a "how to" card the first time each kind of task comes up (off while the first-day tutorial runs it).</summary>
+    public static bool AutoTips = true;
+    /// <summary>A card is on screen or waiting.</summary>
+    public bool CardBusy => tipShowing || tips.Count > 0;
+
+    /// <summary>An intro card for something new (the tutorial uses these). 'key' marks it seen so it isn't shown again.</summary>
+    public void Intro(string title, string body, string key = null)
+    {
+        if (key != null) PlayerPrefs.SetInt(TipKey + key, 1);
+        tips.Enqueue((title, body));
+    }
+
+    /// <summary>The intro card for this task (shown now, whether or not it's been seen).</summary>
+    public void IntroTask(TaskBase t)
+    {
+        var tip = HowTo(t);
+        if (tip.title == null) return;
+        string kind = t is Spill || t is PawPrints ? "FloodHazard" : t.GetType().Name;
+        PlayerPrefs.SetInt(TipKey + kind, 1);
+        tips.Enqueue(tip);
+    }
 
     static bool nextPage, skipAll;
     /// <summary>Turns the intro's page (same as a click) - for the debug panel / tests.</summary>
@@ -36,6 +58,8 @@ public class Onboarding : MonoBehaviour
     bool tipShowing;
     float nextScan;
 
+    void Awake() => Instance = this;
+
     IEnumerator Start()
     {
         font = GameHUD.Instance ? GameHUD.Instance.font : null;
@@ -46,6 +70,7 @@ public class Onboarding : MonoBehaviour
 
         StartInYourRoom();
         firstDay = Campaign.Week == 1 && Campaign.DayIndex == 0;
+        if (TutorialDay.Active) { PlayerPrefs.SetInt(IntroKey, 1); yield break; } // (the tutorial shows you round instead: AfterTutorial)
         if (PlayerPrefs.GetInt(IntroKey, 0) == 0)
         {
             yield return Intro();
@@ -58,6 +83,13 @@ public class Onboarding : MonoBehaviour
             roomMarkersUntil = Time.time + 40f;
             GameHUD.Toast("This is YOUR room: your PC, your desk and your VR headset are here.", GameHUD.Info);
         }
+    }
+
+    /// <summary>The tutorial's over: the first-day labels on your room's things, and the welcome note.</summary>
+    public void AfterTutorial()
+    {
+        roomMarkersUntil = Time.time + 40f;
+        GameHUD.Toast("This is YOUR room: your PC, your desk and your VR headset are here.", GameHUD.Info);
     }
 
     void Update()
@@ -146,9 +178,12 @@ public class Onboarding : MonoBehaviour
         if (!gm || !cam) return;
         float s = HouseLayout.Instance ? HouseLayout.Instance.scale : 1f;
         Vector3 eye = cam.transform.position;
+        bool firstDay = Campaign.Week == 1 && Campaign.DayIndex == 0;
         foreach (var t in gm.Tasks)
         {
             if (!t || !t.IsActive) continue;
+            if (!firstDay && !(t is HazardTask)) continue; // (after day one only the emergencies get a tag - TAB and the footprints do the rest)
+            if (TaskGuide.Instance && TaskGuide.Instance.Guiding == t) continue; // (the footprints already show it)
             if (t is Cooking c && c.GuideShowing) continue; // (in the kitchen the cooking guide does it)
             if (t is MatchTask || t is TypingTask) continue;   // (always at your headset / desk: no marker needed)
             Vector3 where = t.Where;
@@ -171,6 +206,7 @@ public class Onboarding : MonoBehaviour
 
     void FirstTimeTip(TaskBase t)
     {
+        if (!AutoTips) return;
         string kind = t is Spill || t is PawPrints ? "FloodHazard" : t.GetType().Name;
         if (PlayerPrefs.GetInt(TipKey + kind, 0) == 1) return;
         var tip = HowTo(t);
@@ -183,16 +219,16 @@ public class Onboarding : MonoBehaviour
     {
         switch (t)
         {
-            case TypingTask _: return ("Homework", "Sit at your desk (E): solve the sums, or copy the page exactly.");
-            case MatchTask _: return ("Ranked match", "Put the VR headset on in your room (E). Rounds start without you!");
-            case Cooking _: return ("Dinner", "Follow the orange glow in the kitchen, one step at a time.");
-            case TvTask _: return ("TV static", "Find the remote (hold Tab), then E on the TV.");
-            case LaundryTask _: return ("Laundry", "Clothes from your room > washer upstairs > wardrobe.");
-            case FireHazard _: return ("Fire!", "Grab the extinguisher (Tab), hold Left Mouse at the flames.");
-            case FloodHazard _: case PawPrints _: return ("Water", "Grab the mop, hold Left Mouse and swipe over it.");
-            case CeilingLeakTask _: return ("Leak", "Bucket under the drip, then turn the tap off upstairs.");
+            case TypingTask _: return ("Homework", "Sit at your desk (E). Answer the sum, copy the line. Done!");
+            case MatchTask _: return ("Ranked match", "Put the VR headset on in your room (E). Esc takes it off.");
+            case Cooking _: return ("Dinner", "Go to the kitchen. Follow the orange glow, one step at a time.");
+            case TvTask _: return ("TV static", "Find the remote (hold Tab to see it). Then E on the TV.");
+            case LaundryTask _: return ("Laundry", "Pick up the clothes (E). Washer upstairs. Then the wardrobe.");
+            case FireHazard _: return ("Fire!", "Grab the extinguisher. Hold Left Mouse at the flames.");
+            case FloodHazard _: case PawPrints _: return ("Water on the floor", "Grab the mop. Hold Left Mouse and sweep over it.");
+            case CeilingLeakTask _: return ("Leak", "Bucket under the drip. Then turn the tap off upstairs.");
             case OvenTask _: return ("Oven", "Take it out (E) before it burns.");
-            case FuseBox _: return ("Power cut", "Garage wall: open the fuse box (E), flip the switch. Mop first!");
+            case FuseBox _: return ("Power cut", "Garage wall: fuse box (E), flip the switch. Mop any water first!");
         }
         return (null, null);
     }
@@ -254,9 +290,9 @@ public class Onboarding : MonoBehaviour
          "Leave a problem too long and it starts <b>new</b> ones - a flood reaches a socket and the power goes. " +
          "Watch your <b>stress</b>: if it maxes out, you melt down."),
         ("How to play",
-         "<b>WASD</b> move     <b>Shift</b> run     <b>Space</b> jump\n<b>E</b> use / pick up     <b>G</b> drop     <b>Tab</b> show where things are\n" +
-         "<b>Esc</b> pause (or take the VR headset off)\n\n" +
-         "Your to-do list is on the right, the map is top left. Markers point to what needs doing.\nYour room is upstairs: your <b>PC</b>, your <b>desk</b> and your <b>VR headset</b>."),
+         "<b>WASD</b> move     <b>Shift</b> run     <b>Space</b> jump\n<b>E</b> use / pick up     <b>G</b> drop     <b>Esc</b> pause\n" +
+         "<b>Hold Tab</b>: your whole to-do list. Press a job's number and footprints show you the way.\n\n" +
+         "The most urgent job is top right, the map top left.\nYour room is upstairs: your <b>PC</b>, your <b>desk</b> and your <b>VR headset</b>."),
     };
 
     IEnumerator Intro()
@@ -350,6 +386,7 @@ public class Onboarding : MonoBehaviour
     public static void ForgetSeen()
     {
         PlayerPrefs.DeleteKey(IntroKey);
+        PlayerPrefs.DeleteKey("G7l6.pc.homeworkCircled"); // (the PC circles Homework again)
         foreach (var k in new[] { "TypingTask", "MatchTask", "Cooking", "TvTask", "LaundryTask", "FireHazard", "FloodHazard", "CeilingLeakTask", "OvenTask", "FuseBox" })
             PlayerPrefs.DeleteKey(TipKey + k);
     }

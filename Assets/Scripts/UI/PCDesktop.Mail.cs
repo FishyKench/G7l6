@@ -22,7 +22,11 @@ public partial class PCDesktop
     /// <summary>Badges on the MyMail bookmark and on the Browser desktop icon (hidden at zero).</summary>
     void UpdateMailBadges()
     {
-        int unread = Mail.Unread;
+        // until 4:30 PM the browser stays quiet (the day's mail comes then): the PC's only nudge is the homework
+        var dayNow = DayManager.Instance;
+        bool mailTime = !dayNow || dayNow.State != DayManager.Phase.Day || dayNow.Hour >= CampaignRuntime.MailHour;
+        int unread = mailTime ? Mail.Unread : 0;
+        UpdateHomeworkBadge();
         if (unread == shownUnread) return;
         shownUnread = unread;
         string label = unread > 9 ? "9+" : unread.ToString();
@@ -38,7 +42,7 @@ public partial class PCDesktop
             {
                 mailIconBadge = UIFactory.Panel("Mail badge", icon.rt, new Color32(236, 56, 70, 255));
                 mailIconBadge.sprite = Round();
-                UIFactory.Place(mailIconBadge.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(32, -14), new Vector2(26, 26));
+                UIFactory.Place(mailIconBadge.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(38, -12), new Vector2(26, 26));
                 mailIconBadgeText = Txt(mailIconBadge.transform, "", 14, Color.white, TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, false, true);
                 UIFactory.Fill(mailIconBadgeText.rectTransform);
                 mailIconBadgeText.overflowMode = TextOverflowModes.Overflow;
@@ -49,6 +53,30 @@ public partial class PCDesktop
             mailIconBadge.gameObject.SetActive(unread > 0);
             mailIconBadgeText.text = label;
         }
+    }
+
+    Image homeworkBadge;
+    TypingTask homeworkTask;
+    float nextHomeworkLook;
+
+    /// <summary>"DUE" on the Homework icon while today's homework is still to do.</summary>
+    void UpdateHomeworkBadge()
+    {
+        if (Time.unscaledTime >= nextHomeworkLook) { nextHomeworkLook = Time.unscaledTime + 1f; if (!homeworkTask) homeworkTask = FindObjectOfType<TypingTask>(); }
+        bool due = homeworkTask && homeworkTask.IsActive;
+        if (!homeworkBadge)
+        {
+            var icon = icons.Find(i => i.id == "homework");
+            if (icon == null) return;
+            homeworkBadge = UIFactory.Panel("Due badge", icon.rt, new Color32(236, 56, 70, 255));
+            homeworkBadge.sprite = Round();
+            homeworkBadge.type = Image.Type.Sliced;
+            UIFactory.Place(homeworkBadge.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(36, -12), new Vector2(46, 22));
+            var t = Txt(homeworkBadge.transform, "DUE", 13, Color.white, TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, false, true);
+            UIFactory.Fill(t.rectTransform);
+            t.overflowMode = TextOverflowModes.Overflow;
+        }
+        if (homeworkBadge.gameObject.activeSelf != due) homeworkBadge.gameObject.SetActive(due);
     }
 
     class MailPage : SitePage

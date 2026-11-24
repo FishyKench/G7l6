@@ -81,6 +81,8 @@ public class PawPrints : HazardTask
 
     public override Vector3 Where => prints.Count > 0 && prints[prints.Count / 2].go ? prints[prints.Count / 2].go.transform.position : transform.position;
     public int Left => prints.Count;
+    /// <summary>Where the prints still on the floor are.</summary>
+    public IEnumerable<Vector3> Remaining { get { foreach (var p in prints) if (p.go) yield return p.go.transform.position; } }
     public override float Progress => total > 0 ? 1f - prints.Count / (float)total : 0f;
     public override string Status => PlayerHolds(ItemType.Mop) ? $"Swipe the mop over the paw prints ({prints.Count} left)" : $"Wet paw prints - get the mop ({prints.Count} left)";
 
@@ -172,7 +174,7 @@ public class PawPrints : HazardTask
 
     static Material printMaterial;
 
-    static Material PrintMaterial()
+    public static Material PrintMaterial()
     {
         if (printMaterial) return printMaterial;
         const int N = 48;

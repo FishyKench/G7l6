@@ -14,7 +14,11 @@ public class VRAmbience : MonoBehaviour
     (Renderer r, Light l, float phase, float baseIntensity, Color baseEmission)[] pulsers;
     Material floor;
 
-    void Start()
+    void Start() => Init();
+
+    /// <summary>Finds what to spin / pulse. (Runs again if the editor reloaded the scripts mid-play - that wipes these lists
+    /// without calling Start, e.g. after alt-tabbing back in with changed code.)</summary>
+    void Init()
     {
         var all = GetComponentsInChildren<Transform>(true);
         spinners = System.Array.FindAll(all, t => t.name.StartsWith("Spin"));
@@ -30,13 +34,15 @@ public class VRAmbience : MonoBehaviour
         }
         pulsers = list.ToArray();
         var floorObj = transform.Find("Floor");
-        if (floorObj) floor = floorObj.GetComponent<Renderer>().material;
-        BuildSpecks();
+        var floorRenderer = floorObj ? floorObj.GetComponent<Renderer>() : null;
+        if (floorRenderer) floor = floorRenderer.material;
+        if (!transform.Find("Light specks")) BuildSpecks();
     }
 
     void Update()
     {
         if (PauseMenu.IsPaused) return;
+        if (spinners == null || pulsers == null) Init();
         float t = Time.time;
         for (int i = 0; i < spinners.Length; i++)
             if (spinners[i]) spinners[i].Rotate(0f, spinSpeed * (i % 2 == 0 ? 1f : -1.4f) * Time.deltaTime, 0f, Space.Self);

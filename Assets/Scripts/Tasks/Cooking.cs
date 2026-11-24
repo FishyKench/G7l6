@@ -145,6 +145,7 @@ public class Cooking : TaskBase, IPromptProvider
         Station(kitchen, "Serving island", KitchenStation.Kind.Island);
         SetUpCookwareCounter(kitchen);
         SolidIslandTop(kitchen);
+        SetUpDiningTable();
 
         if (GameManager.Instance) GameManager.Instance.Register(this);
         Today = Recipes[Mathf.Abs(Campaign.Week * 5 + Campaign.DayIndex) % Recipes.Length];
@@ -209,6 +210,8 @@ public class Cooking : TaskBase, IPromptProvider
         UpdateCard();
         UpdateGuide();
         PlaceDroppedVessel();
+        UpdateToTable();
+        UpdateWashUp();
     }
 
     // ------------------------------------------------------------------ the kitchen guide (markers on the stations)
@@ -226,6 +229,7 @@ public class Cooking : TaskBase, IPromptProvider
         KitchenStation.Kind.Board => "CUTTING BOARD",
         KitchenStation.Kind.Microwave => "MICROWAVE",
         KitchenStation.Kind.Stove => "STOVE - COOK HERE",
+        KitchenStation.Kind.Table => "DINING TABLE",
         _ => "ISLAND - SERVE HERE",
     };
 
@@ -233,6 +237,7 @@ public class Cooking : TaskBase, IPromptProvider
     KitchenStation.Kind? NextStation()
     {
         var spot = Today.vessel == Vessel.Bowl ? KitchenStation.Kind.Island : KitchenStation.Kind.Stove;
+        if (PracticeServing) return diningTable ? (KitchenStation.Kind?)null : KitchenStation.Kind.Island;
         if (cooking) return KitchenStation.Kind.Stove;
         if (!vesselFetched) return KitchenStation.Kind.Cookware;
         if (Today.vessel == Vessel.Pot && !waterIn) return KitchenStation.Kind.Sink;
@@ -259,7 +264,7 @@ public class Cooking : TaskBase, IPromptProvider
 
     void UpdateGuide()
     {
-        GuideShowing = IsActive && !done && !animating && Today != null && !VRHeadset.Worn && !CuttingGame.Running && !HudFocus.Full
+        GuideShowing = IsActive && !done && !toTable && !animating && Today != null && !VRHeadset.Worn && !CuttingGame.Running && !HudFocus.Full
                        && !(PlayerInteraction.Instance && PlayerInteraction.Instance.InMainTask)
                        && (InKitchen() || HeldFood() || HeldVessel());
         var next = GuideShowing ? NextStation() : null;
@@ -289,7 +294,8 @@ public class Cooking : TaskBase, IPromptProvider
             case KitchenStation.Kind.Board: return "CHOP";
             case KitchenStation.Kind.Microwave: return "DEFROST";
         }
-        if (cooking) return cookTimer >= Today.cookSeconds ? "TAKE IT OFF!" : "COOKING...";
+        if (PracticeServing) return "SERVE IT";
+        if (cooking) return cookTimer >= Today.cookSeconds ? (Practising ? "STOVE OFF" : "TAKE IT OFF!") : "COOKING...";
         if (!vesselPlaced) return "PUT IT HERE";
         if (held && held.ing != null) return "ADD " + held.ing.name.ToUpperInvariant();
         if (held && held.seasoning != null) return Today.seasoning == "salt" ? "ADD SALT" : "ADD OIL";
@@ -345,10 +351,17 @@ public class Cooking : TaskBase, IPromptProvider
     {
         if (!cooking) return;
         cookTimer += Time.deltaTime;
+        if (Practising && cookTimer >= Today.cookSeconds && !PracticeReady)
+        {
+            // (practice: it's ready - you turn the stove off yourself, and it never burns)
+            PracticeReady = true;
+            if (vesselOnStove) Fx.Puff(vesselOnStove.transform.position + Vector3.up * 0.25f * K, new Color(1f, 1f, 1f, 0.7f), 8, 0.8f);
+            GameHUD.Toast("Ding! The stew's ready - turn the stove off.", GameHUD.Good);
+        }
         float t = cookTimer / Today.cookSeconds;
         if (stoveLight) stoveLight.intensity = 1.6f + 0.4f * Mathf.PerlinNoise(Time.time * 3f, 0.3f);
         if (Random.value < Time.deltaTime * 3f && vesselOnStove) Fx.Puff(vesselOnStove.transform.position + Vector3.up * 0.25f * K, new Color(1f, 1f, 1f, 0.5f), 2, 0.6f);
-        if (t >= 1.9f)
+        if (t >= 1.9f && !Practising)
         {
             cooking = false;
             SetStove(false);
@@ -389,6 +402,9 @@ public class Cooking : TaskBase, IPromptProvider
     {
         string vessel = Today.vessel == Vessel.Pot ? "pot" : Today.vessel == Vessel.Pan ? "frying pan" : "big bowl";
         string spot = Today.vessel == Vessel.Bowl ? "the island" : "the stove";
+        if (PracticeServing) return diningTable ? "Serve it: take it to the dining table" : "Serve it: carry the pot to the island";
+        if (toTable) return "Take dinner to the dining table";
+        if (cooking && Practising && PracticeReady) return "READY - turn the stove off";
         if (cooking)
         {
             float t = cookTimer / Today.cookSeconds;
@@ -414,6 +430,9 @@ public class Cooking : TaskBase, IPromptProvider
 
     public string PromptFor(KitchenStation.Kind kind)
     {
+        if (toTable) return TablePrompt(kind);
+        if (washUp) return WashPrompt(kind);
+        if (kind == KitchenStation.Kind.Table) return null;
         if (!IsActive || Today == null || done || animating) return null;
         var held = HeldFood();
         var heldVessel = HeldVessel();
@@ -437,6 +456,7 @@ public class Cooking : TaskBase, IPromptProvider
                 return held && held.ing != null && held.ing.frozen && !held.defrosted ? $"Defrost the {held.ing.name}" : null;
             case KitchenStation.Kind.Stove:
             case KitchenStation.Kind.Island:
+                if (PracticeServing) return kind == KitchenStation.Kind.Island && heldVessel ? "Serve the stew" : null;
                 bool here = (kind == KitchenStation.Kind.Stove) == (Today.vessel != Vessel.Bowl);
                 if (!here) return null;
                 if (heldVessel && !vesselPlaced) return Today.vessel == Vessel.Pot && !waterIn ? "Fill it with water first (sink)" : $"Put the {VesselName()} here";
@@ -456,6 +476,9 @@ public class Cooking : TaskBase, IPromptProvider
 
     public void InteractWith(KitchenStation.Kind kind)
     {
+        if (toTable) { TableInteract(kind); return; }
+        if (washUp) { WashInteract(kind); return; }
+        if (kind == KitchenStation.Kind.Table) return;
         if (!IsActive || Today == null) { GameHUD.Toast("Mom hasn't said what's for dinner yet.", GameHUD.Info); return; }
         if (animating) return;
         var held = HeldFood();
@@ -508,7 +531,7 @@ public class Cooking : TaskBase, IPromptProvider
                 {
                     var f = PlayerCarry.Instance.TakeHeld().GetComponent<Food>();
                     microwaveFood = f;
-                    microwaveLeft = 10f;
+                    microwaveLeft = Practising ? 5f : 10f;
                     SetMicrowave(true);
                     PutInMicrowave(f);
                 }
@@ -516,6 +539,13 @@ public class Cooking : TaskBase, IPromptProvider
             case KitchenStation.Kind.Stove:
             case KitchenStation.Kind.Island:
             {
+                if (PracticeServing)
+                {
+                    if (kind != KitchenStation.Kind.Island) return;
+                    if (heldVessel) PracticeServe();
+                    else GameHUD.Toast("Bring the pot over first.", GameHUD.Info);
+                    return;
+                }
                 bool here = (kind == KitchenStation.Kind.Stove) == (Today.vessel != Vessel.Bowl);
                 if (!here) return;
                 var st = stations[kind.ToString()];
@@ -553,6 +583,7 @@ public class Cooking : TaskBase, IPromptProvider
                 float t = cookTimer / Today.cookSeconds;
                 cooking = false;
                 SetStove(false);
+                if (Practising) { PracticeTakeOff(); return; }
                 Finish(t <= 1.35f ? 1f : 0.45f);
                 return;
             }
@@ -565,11 +596,334 @@ public class Cooking : TaskBase, IPromptProvider
         foreach (var i in items) cut += i.cutQuality;
         cut /= Mathf.Max(1, items.Count);
         float q = cut * 0.6f + timing * 0.4f;
+        if (diningTable && !Practising)
+        {
+            // plated up: you carry it to the dining table yourself, and it counts once it's there
+            servedQuality = q;
+            PlateUp();
+            return;
+        }
         ShowDish();
+        Served(q);
+    }
+
+    void Served(float q)
+    {
         done = true;
         if (q >= 0.85f) { DayManager.AddQuality($"Perfect {Today.name.ToLowerInvariant()}", 5); Complete($"{Today.name} - perfect! Mom is going to love this."); }
         else if (q >= 0.6f) { DayManager.AddQuality($"Tasty {Today.name.ToLowerInvariant()}", 2); Complete($"{Today.name} is ready. Not bad at all!"); }
         else Complete($"{Today.name} is... edible. Dinner's ready.");
+        BeginWashUp();
+    }
+
+    // ------------------------------------------------------------------ carrying dinner to the dining table
+
+    Transform diningTable;
+    GameObject carriedDinner;
+    bool toTable;
+    float servedQuality;
+
+    /// <summary>Dinner's plated and on its way to the table (in your hands, or put down somewhere).</summary>
+    public bool CarryingDinner => toTable;
+
+    /// <summary>The dining room's table becomes a spot you use with E (to lay dinner on it).</summary>
+    void SetUpDiningTable()
+    {
+        diningTable = DiningTable(out _);
+        if (!diningTable) return;
+        if (!diningTable.GetComponentInChildren<Collider>())
+        {
+            var b = Bounds(diningTable.gameObject);
+            var box = diningTable.gameObject.AddComponent<BoxCollider>();
+            box.center = diningTable.InverseTransformPoint(b.center);
+            var sc = diningTable.lossyScale;
+            box.size = new Vector3(b.size.x / Mathf.Max(1e-4f, Mathf.Abs(sc.x)), b.size.y / Mathf.Max(1e-4f, Mathf.Abs(sc.y)), b.size.z / Mathf.Max(1e-4f, Mathf.Abs(sc.z)));
+        }
+        var st = diningTable.GetComponent<KitchenStation>();
+        if (!st) st = diningTable.gameObject.AddComponent<KitchenStation>();
+        st.kind = KitchenStation.Kind.Table;
+    }
+
+    /// <summary>The food goes onto its plate / bowl and into your hands (the pot / pan / bowl it was made in stays, to wash).</summary>
+    void PlateUp()
+    {
+        if (vesselContents) vesselContents.gameObject.SetActive(false);
+        float k = K;
+        var hand = PlayerCarry.Instance ? PlayerCarry.Instance.holdPoint : null;
+        Vector3 at = vesselOnStove ? Bounds(vesselOnStove).center + Vector3.up * 0.2f * k : (hand ? hand.position : transform.position);
+        var go = new GameObject("Dinner (to the table)");
+        go.transform.position = at;
+        FoodInto(go.transform, at, k);
+        foreach (var c in go.GetComponentsInChildren<Collider>()) Destroy(c);
+        var b = Bounds(go);
+        var box = go.AddComponent<BoxCollider>();
+        box.center = go.transform.InverseTransformPoint(b.center);
+        box.size = b.size + Vector3.one * 0.02f;
+        var carry = go.AddComponent<Carryable>();
+        carry.type = ItemType.Food;
+        carry.displayName = Today.name.ToLowerInvariant();
+        carry.hasHome = false;
+        carry.maxHeldSize = 0.32f;
+        carry.heldRotation = Vector3.zero;
+        var outline = go.AddComponent<Outline>();
+        outline.OutlineMode = Outline.Mode.OutlineVisible;
+        outline.OutlineColor = Color.white;
+        outline.OutlineWidth = 5f;
+        outline.enabled = false;
+        carriedDinner = go;
+        toTable = true;
+        Fx.Puff(at, new Color(1f, 1f, 1f, 0.6f), 6, 0.6f);
+        if (PlayerCarry.Instance)
+        {
+            if (PlayerCarry.Instance.Held) PlayerCarry.Instance.Drop();
+            PlayerCarry.Instance.PickUp(carry);
+        }
+        GameHUD.Toast($"{Today.name}'s ready! Take it to the dining table.", GameHUD.Good);
+    }
+
+    bool HoldingDinner => carriedDinner && PlayerCarry.Instance && PlayerCarry.Instance.Held && PlayerCarry.Instance.Held.gameObject == carriedDinner;
+
+    string TablePrompt(KitchenStation.Kind kind) => kind == KitchenStation.Kind.Table && HoldingDinner ? "Put dinner on the table" : null;
+
+    void TableInteract(KitchenStation.Kind kind)
+    {
+        if (kind == KitchenStation.Kind.Table && HoldingDinner) LayOnTable();
+        else if (kind == KitchenStation.Kind.Table) GameHUD.Toast("Bring dinner over first.", GameHUD.Info);
+    }
+
+    void LayOnTable()
+    {
+        if (!carriedDinner) return;
+        if (PlayerCarry.Instance && HoldingDinner) PlayerCarry.Instance.TakeHeld();
+        var go = carriedDinner;
+        carriedDinner = null;
+        toTable = false;
+        ShowDish(go);
+        if (Practising) { PracticeServing = false; done = PracticeDone = true; return; }
+        Served(servedQuality);
+    }
+
+    void UpdateToTable()
+    {
+        if (!toTable) return;
+        if (!carriedDinner)
+        {
+            // (lost somehow: it's served anyway)
+            toTable = false;
+            ShowDish();
+            if (Practising) { PracticeServing = false; done = PracticeDone = true; } else Served(servedQuality);
+            return;
+        }
+        bool holding = HoldingDinner;
+        // put down (G) on the table counts too
+        if (!holding && diningTable)
+        {
+            var tb = Bounds(diningTable.gameObject);
+            var p = carriedDinner.transform.position;
+            var carry = carriedDinner.GetComponent<Carryable>();
+            if (carry && !carry.IsHeld && p.x > tb.min.x - 0.1f && p.x < tb.max.x + 0.1f && p.z > tb.min.z - 0.1f && p.z < tb.max.z + 0.1f && p.y > tb.max.y - 0.3f) { LayOnTable(); return; }
+        }
+        if (VRHeadset.Worn || HudFocus.Full || (PlayerInteraction.Instance && PlayerInteraction.Instance.InMainTask)) return;
+        if (holding && diningTable)
+        {
+            var tb = Bounds(diningTable.gameObject);
+            ScreenMarkers.Show("kitchen.table", new Vector3(tb.center.x, tb.max.y + 0.15f * K, tb.center.z), "DINING TABLE", HudArt.MarkerOrange, true);
+        }
+        else if (!holding)
+        {
+            var b = Bounds(carriedDinner);
+            ScreenMarkers.Show("kitchen.table", new Vector3(b.center.x, b.max.y + 0.12f * K, b.center.z), "DINNER", HudArt.MarkerOrange, true);
+        }
+    }
+
+    // ------------------------------------------------------------------ washing up (after dinner's served)
+    // The empty pot / pan / bowl it was made in is dirty now: pick it up, wash it at the sink, and it goes back in the cupboard.
+    // Dinner already counts (Mom judges the food); a clean kitchen is a small bonus on top.
+
+    bool washUp;
+    Food dirtyVessel;
+
+    /// <summary>The washing up is waiting (the dirty pot / pan / bowl is still out).</summary>
+    public bool WashUpPending => washUp;
+
+    void BeginWashUp()
+    {
+        var v = vesselOnStove ? vesselOnStove.GetComponent<Food>() : null;
+        if (!v || Practising) return;
+        washUp = true;
+        dirtyVessel = v;
+        StartCoroutine(WashUpHint());
+    }
+
+    IEnumerator WashUpHint()
+    {
+        yield return new WaitForSeconds(2.6f); // (after the "served" toasts)
+        if (washUp) GameHUD.Toast($"Dinner's on the dining table. Now wash the {VesselName()} up at the sink.", GameHUD.Info);
+    }
+
+    bool HoldingDirty => dirtyVessel && PlayerCarry.Instance && PlayerCarry.Instance.Held && PlayerCarry.Instance.Held.gameObject == dirtyVessel.gameObject;
+
+    /// <summary>Is the dirty one standing where it was made (not picked up yet)?</summary>
+    bool DirtyAtItsSpot => dirtyVessel && vesselOnStove == dirtyVessel.gameObject;
+
+    KitchenStation.Kind DirtySpotKind => Today != null && Today.vessel == Vessel.Bowl ? KitchenStation.Kind.Island : KitchenStation.Kind.Stove;
+
+    string WashPrompt(KitchenStation.Kind kind)
+    {
+        if (animating || toTable) return null;
+        if (kind == KitchenStation.Kind.Sink && HoldingDirty) return $"Wash the {VesselName()}";
+        if (kind == DirtySpotKind && DirtyAtItsSpot && !(PlayerCarry.Instance && PlayerCarry.Instance.Held)) return $"Pick up the dirty {VesselName()}";
+        return null;
+    }
+
+    void WashInteract(KitchenStation.Kind kind)
+    {
+        if (animating) return;
+        if (kind == KitchenStation.Kind.Sink && HoldingDirty)
+        {
+            StartCoroutine(WashAtSink(dirtyVessel, stations[KitchenStation.Kind.Sink.ToString()].transform));
+            return;
+        }
+        if (kind == DirtySpotKind && DirtyAtItsSpot)
+        {
+            if (PlayerCarry.Instance && PlayerCarry.Instance.Held) { GameHUD.Toast("Your hands are full.", GameHUD.Warn); return; }
+            var v = dirtyVessel;
+            vesselOnStove = null;
+            v.transform.SetParent(null, true);
+            foreach (var c in v.GetComponentsInChildren<Collider>(true))
+                if (!vesselContents || !c.transform.IsChildOf(vesselContents)) c.enabled = true;
+            var carry = v.GetComponent<Carryable>();
+            if (carry) carry.enabled = true;
+            Give(v);
+        }
+    }
+
+    void UpdateWashUp()
+    {
+        if (!washUp) return;
+        if (!dirtyVessel) { washUp = false; ShowOnCounter(); return; } // (gone some other way: the cupboard has it back)
+        if (animating || VRHeadset.Worn || HudFocus.Full || (PlayerInteraction.Instance && PlayerInteraction.Instance.InMainTask)) return;
+        bool holding = HoldingDirty;
+        if (!holding && !InKitchen()) return;
+        Vector3 at;
+        string label;
+        if (holding && stations.TryGetValue(KitchenStation.Kind.Sink.ToString(), out var sink) && sink)
+        {
+            var b = Bounds(sink.gameObject);
+            at = new Vector3(b.center.x, b.max.y + 0.12f * K, b.center.z);
+            label = "WASH UP";
+        }
+        else
+        {
+            var b = Bounds(dirtyVessel.gameObject);
+            at = new Vector3(b.center.x, b.max.y + 0.1f * K, b.center.z);
+            label = "DIRTY " + VesselName().ToUpperInvariant();
+        }
+        ScreenMarkers.Show("kitchen.washup", at, label, HudArt.MarkerOrange, true);
+    }
+
+    void ShowOnCounter()
+    {
+        if (Today != null && onCounter.TryGetValue(Today.vessel, out var shown) && shown) shown.SetActive(true);
+    }
+
+    /// <summary>Into the basin, the tap runs, a scrub, and it goes back to its place in the cupboard - clean.</summary>
+    IEnumerator WashAtSink(Food v, Transform sink)
+    {
+        animating = true;
+        PlayerCarry.Instance.TakeHeld();
+        var carry = v.GetComponent<Carryable>();
+        if (carry) carry.enabled = false;
+        foreach (var c in v.GetComponentsInChildren<Collider>(true)) c.enabled = false;
+        if (vesselContents && vesselContents.IsChildOf(v.transform)) vesselContents.gameObject.SetActive(false);
+        SinkSpot(sink, out Vector3 tip, out Vector3 toBasin, out float floorY, out Transform tap);
+        Quaternion upright = Quaternion.Euler(0f, v.transform.eulerAngles.y, 0f);
+        Vector3 spot = new Vector3(tip.x, floorY, tip.z) + toBasin * 0.06f;
+        yield return v.MoveTo(spot, upright, 0.35f);
+
+        Quaternion tapRest = tap ? tap.localRotation : Quaternion.identity;
+        for (float t = 0f; t < 1f && tap; t += Time.deltaTime / 0.15f) { tap.localRotation = tapRest * Quaternion.Euler(0f, 90f * t, 0f); yield return null; }
+        var stream = WaterStream();
+        float bottom = Bounds(v.gameObject).min.y + 0.02f;
+        const float wash = 1.8f;
+        float nextSplash = 0f;
+        for (float e = 0f; e < wash; e += Time.deltaTime)
+        {
+            float bot = e < 0.15f ? Mathf.Lerp(tip.y, bottom, e / 0.15f) : bottom;
+            float len = Mathf.Max(0.002f, tip.y - bot);
+            stream.transform.position = new Vector3(tip.x, (tip.y + bot) * 0.5f, tip.z);
+            stream.transform.localScale = new Vector3(0.012f, len * 0.5f, 0.012f);
+            // a scrub: it's swirled round under the water
+            v.transform.rotation = upright * Quaternion.Euler(6f * Mathf.Sin(e * 11f), 40f * Mathf.Sin(e * 3.2f), 6f * Mathf.Cos(e * 9f));
+            if (e > 0.15f && e >= nextSplash)
+            {
+                nextSplash = e + 0.16f;
+                Fx.Splash(new Vector3(tip.x, bottom + 0.03f, tip.z), 2, 0.25f);
+                Fx.Puff(new Vector3(tip.x, bottom + 0.06f, tip.z) + Random.insideUnitSphere * 0.05f, new Color(1f, 1f, 1f, 0.8f), 2, 0.25f); // suds
+            }
+            yield return null;
+        }
+        Destroy(stream);
+        for (float t = 0f; t < 1f && tap; t += Time.deltaTime / 0.15f) { tap.localRotation = tapRest * Quaternion.Euler(0f, 90f * (1f - t), 0f); yield return null; }
+        if (tap) tap.localRotation = tapRest;
+        v.ShowWater(false, 0f);
+
+        // back where it lives (it flies over to the cupboard, then it's the one on show again)
+        if (Today != null && onCounter.TryGetValue(Today.vessel, out var shown) && shown)
+        {
+            var sb = Bounds(shown);
+            var target = new Vector3(sb.center.x, sb.min.y, sb.center.z);
+            var vb = Bounds(v.gameObject);
+            Vector3 offset = v.transform.position - new Vector3(vb.center.x, vb.min.y, vb.center.z);
+            yield return v.MoveTo(target + offset, Quaternion.Euler(0f, shown.transform.eulerAngles.y, 0f), 0.45f);
+        }
+        Fx.Puff(Bounds(v.gameObject).center, new Color(1f, 1f, 1f, 0.6f), 5, 0.5f);
+        washUp = false;
+        dirtyVessel = null;
+        if (fetchedVessel == v) fetchedVessel = null;
+        Destroy(v.gameObject);
+        ShowOnCounter();
+        animating = false;
+        DayManager.AddQuality("Washed up after dinner", 1);
+        GameHUD.Toast($"All clean - the {VesselName()}'s back in the cupboard.", GameHUD.Good);
+    }
+
+    GameObject WaterStream()
+    {
+        var stream = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        Destroy(stream.GetComponent<Collider>());
+        stream.name = "Running water";
+        var wm = new Material(Shader.Find("Standard")) { color = new Color(0.75f, 0.9f, 1f) };
+        wm.SetFloat("_Glossiness", 0.95f);
+        wm.EnableKeyword("_EMISSION");
+        wm.SetColor("_EmissionColor", new Color(0.25f, 0.35f, 0.45f)); // catches the light like running water
+        stream.GetComponent<Renderer>().sharedMaterial = wm;
+        return stream;
+    }
+
+    /// <summary>The sink's spout tip, the way from the faucet over the basin, the basin floor, and the tap handle.</summary>
+    static void SinkSpot(Transform sink, out Vector3 tip, out Vector3 toBasin, out float floorY, out Transform tap)
+    {
+        var sb = Bounds(sink.gameObject);
+        var sinkMesh = sink.GetComponent<MeshFilter>();
+        float counterTop = sinkMesh && sinkMesh.sharedMesh ? sink.TransformPoint(new Vector3(0f, sinkMesh.sharedMesh.bounds.max.y, 0f)).y : sb.max.y;
+        Transform faucet = null;
+        tap = null;
+        foreach (var t in sink.GetComponentsInChildren<Transform>())
+        {
+            if (t.name == "Faucet") faucet = t;
+            else if (t.name == "Tap" && !tap) tap = t;
+        }
+        toBasin = sb.center - (faucet ? faucet.position : sb.center + sink.forward);
+        toBasin.y = 0f;
+        toBasin = toBasin.sqrMagnitude > 1e-4f ? toBasin.normalized : sink.forward;
+        if (faucet && faucet.GetComponent<Renderer>())
+        {
+            var fb = faucet.GetComponent<Renderer>().bounds;
+            tip = new Vector3(fb.center.x, fb.max.y - 0.045f, fb.center.z) + toBasin * (Along(toBasin, fb.extents) - 0.015f);
+        }
+        else tip = new Vector3(sb.center.x, counterTop + 0.3f, sb.center.z);
+        floorY = sinkMesh && sinkMesh.sharedMesh && sinkMesh.sharedMesh.name == "Counter (Connected - Sink)" ? sink.TransformPoint(new Vector3(0f, 0.79f, 0f)).y + 0.004f : counterTop - 0.1f;
     }
 
     static string StoreName(KitchenStation.Kind kind) => kind == KitchenStation.Kind.Fridge ? "fridge" : kind == KitchenStation.Kind.Freezer ? "freezer" : "pantry";
@@ -662,7 +1016,7 @@ public class Cooking : TaskBase, IPromptProvider
 
     // ------------------------------------------------------------------ the pot / pan / bowl at its spot
 
-    void PlaceVessel(Food v, Transform spot)
+    void PlaceVessel(Food v, Transform spot, bool quiet = false)
     {
         var b = Bounds(spot.gameObject);
         v.GetComponent<Carryable>().enabled = false;
@@ -717,7 +1071,7 @@ public class Cooking : TaskBase, IPromptProvider
                 burnerGlow.SetActive(false);
             }
         }
-        GameHUD.Toast($"The {VesselName()} is in place.", GameHUD.Good);
+        if (!quiet) GameHUD.Toast($"The {VesselName()} is in place.", GameHUD.Good);
     }
 
     // ------------------------------------------------------------------ things going in (you see it happen)
@@ -869,10 +1223,10 @@ public class Cooking : TaskBase, IPromptProvider
     /// in stays where it is, empty). Each recipe gets its own plate: the stew in a bowl on a plate with a spoon, the bolognese in a
     /// deep plate, the omelette on a dinner plate, the salad in its bowl.
     /// </summary>
-    void ShowDish()
+    void ShowDish(GameObject carried = null)
     {
         if (vesselContents) vesselContents.gameObject.SetActive(false);
-        if (!ServeSpot(out Vector3 at, out float yaw)) return;
+        if (!ServeSpot(out Vector3 at, out float yaw)) { if (carried) Destroy(carried); return; }
         float k = K;
         var root = new GameObject("Dinner - " + Today.name);
         root.transform.SetPositionAndRotation(at, Quaternion.Euler(0f, yaw, 0f));
@@ -880,18 +1234,37 @@ public class Cooking : TaskBase, IPromptProvider
 
         // the place setting
         Block(root.transform, "Placemat", new Vector3(0f, 0.002f, 0f), new Vector3(0.5f, 0.004f, 0.36f) * k, new Color(0.78f, 0.24f, 0.2f));
-        Block(root.transform, "Placemat edge", new Vector3(0f, 0.0025f, 0f), new Vector3(0.46f, 0.004f, 0.32f) * k, new Color(0.88f, 0.4f, 0.32f));
-        Block(root.transform, "Napkin", new Vector3(-0.2f, 0.006f, 0.02f), new Vector3(0.07f, 0.008f, 0.16f) * k, new Color(0.96f, 0.95f, 0.9f));
+        Block(root.transform, "Placemat edge", new Vector3(0f, 0.0045f, 0f), new Vector3(0.46f, 0.004f, 0.32f) * k, new Color(0.88f, 0.4f, 0.32f));
+        Block(root.transform, "Napkin", new Vector3(-0.2f, 0.0095f, 0.02f), new Vector3(0.07f, 0.004f, 0.16f) * k, new Color(0.96f, 0.95f, 0.9f));
         bool soup = Today.dish == "bowl-broth";
         Cutlery(root.transform, new Vector3(-0.2f, 0.012f, 0.02f) * k, "fork");
         Cutlery(root.transform, new Vector3(0.2f, 0.006f, 0.02f) * k, soup ? "spoon" : "knife");
 
-        // the food
+        // the food: brought over on its plate, or plated up right here
+        if (carried)
+        {
+            carried.transform.SetParent(null, true);
+            carried.transform.localScale = Vector3.one;
+            carried.transform.SetPositionAndRotation(at, Quaternion.Euler(0f, yaw, 0f));
+            var kids = new List<Transform>();
+            foreach (Transform c in carried.transform) kids.Add(c);
+            foreach (var c in kids) c.SetParent(root.transform, true);
+            Destroy(carried);
+        }
+        else FoodInto(root.transform, at, k);
+        foreach (var c in root.GetComponentsInChildren<Collider>()) Destroy(c);
+        Fx.Puff(at + Vector3.up * 0.15f * k, new Color(1f, 1f, 1f, 0.6f), 6, 0.7f);
+        GameHUD.Toast($"{Today.name} is served - it's on the {(servedAtTable ? "dining table" : "island")}.", GameHUD.Good);
+    }
+
+    /// <summary>The plated food (no place setting) under 'parent', standing on 'at'.</summary>
+    void FoodInto(Transform parent, Vector3 at, float k)
+    {
         GameObject Put(string id, float size, float y)
         {
             var m = CookingKit.Instance ? CookingKit.Instance.Model(id) : null;
             if (!m) return null;
-            var go = Instantiate(m, root.transform);
+            var go = Instantiate(m, parent);
             go.name = id;
             go.transform.localRotation = Quaternion.identity;
             Food.UseFoodPalette(go);
@@ -903,16 +1276,15 @@ public class Cooking : TaskBase, IPromptProvider
         switch (Today.dish)
         {
             case "bowl-broth":
-                Put("plate-dinner", 0.27f, 0.004f);
-                Put("bowl-broth", 0.2f, 0.016f);
+                StewBowl(parent, at, k);
                 break;
             case "plate-deep":
                 Put("plate-deep", 0.28f, 0.004f);
-                Pasta(root.transform, at, k);
+                Pasta(parent, at, k);
                 break;
             case "egg-cooked":
                 Put("plate-dinner", 0.27f, 0.004f);
-                Omelette(root.transform, at, k);
+                Omelette(parent, at, k);
                 break;
             case "salad":
                 Put("salad", 0.25f, 0.004f);
@@ -922,14 +1294,148 @@ public class Cooking : TaskBase, IPromptProvider
                 Put(Today.dish, 0.2f, 0.016f);
                 break;
         }
-        foreach (var c in root.GetComponentsInChildren<Collider>()) Destroy(c);
-        Fx.Puff(at + Vector3.up * 0.15f * k, new Color(1f, 1f, 1f, 0.6f), 6, 0.7f);
-        GameHUD.Toast($"{Today.name} is served - it's on the island.", GameHUD.Good);
     }
 
-    /// <summary>Where dinner goes: a clear bit of the island top (or by the stove if there's no island).</summary>
+    /// <summary>
+    /// A bowl of the stew that was actually made: the plain bowl, filled near the top with thick brown stew, and chunks of what
+    /// went in poking out of it (beef, potato, carrot, onion... whatever today's recipe had).
+    /// </summary>
+    void StewBowl(Transform parent, Vector3 at, float k)
+    {
+        var bowl = Food.KitModel("bowl", 0.19f * k);
+        if (!bowl) return;
+        bowl.name = "Stew bowl";
+        bowl.transform.SetParent(parent, true);
+        Food.UseFoodPalette(bowl);
+        var b = Bounds(bowl);
+        bowl.transform.position += new Vector3(at.x, at.y + 0.006f * k, at.z) - new Vector3(b.center.x, b.min.y, b.center.z);
+        b = Bounds(bowl);
+        float radius = Mathf.Min(b.extents.x, b.extents.z);
+        float surface = b.min.y + b.size.y * 0.72f;
+        Vector3 c = new Vector3(b.center.x, surface, b.center.z);
+        // the stew itself: a thick, glossy brown top
+        var stew = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        stew.name = "Stew";
+        Destroy(stew.GetComponent<Collider>());
+        stew.transform.SetParent(parent, true);
+        stew.transform.position = c;
+        stew.transform.localScale = new Vector3(radius * 1.62f, 0.004f, radius * 1.62f);
+        var sm = new Material(Shader.Find("Standard")) { color = new Color(0.36f, 0.17f, 0.07f) };
+        sm.SetFloat("_Glossiness", 0.6f);
+        stew.GetComponent<Renderer>().sharedMaterial = sm;
+        // the chunks: what went in, cooked
+        var ids = new List<string>(Today.ingredients);
+        if (Practising) { if (!ids.Contains("carrot")) ids.Add("carrot"); if (!ids.Contains("onion")) ids.Add("onion"); }
+        var rng = new System.Random(Today.name.GetHashCode());
+        int n = 0;
+        foreach (var id in ids)
+        {
+            Color col; PrimitiveType shape; Vector3 size;
+            switch (id)
+            {
+                case "beef": col = new Color(0.36f, 0.18f, 0.12f); shape = PrimitiveType.Cube; size = new Vector3(0.026f, 0.02f, 0.022f); break;
+                case "mince": col = new Color(0.4f, 0.22f, 0.15f); shape = PrimitiveType.Sphere; size = new Vector3(0.018f, 0.012f, 0.016f); break;
+                case "potato": col = new Color(0.93f, 0.8f, 0.48f); shape = PrimitiveType.Cube; size = new Vector3(0.025f, 0.022f, 0.025f); break;
+                case "carrot": col = new Color(0.95f, 0.48f, 0.12f); shape = PrimitiveType.Cylinder; size = new Vector3(0.022f, 0.004f, 0.022f); break;
+                case "onion": col = new Color(0.96f, 0.9f, 0.74f); shape = PrimitiveType.Cube; size = new Vector3(0.022f, 0.004f, 0.008f); break;
+                default: col = Ingredients.TryGetValue(id, out var ing) ? ing.colour : Color.gray; shape = PrimitiveType.Sphere; size = Vector3.one * 0.016f; break;
+            }
+            var mat = new Material(Shader.Find("Standard")) { color = col };
+            mat.SetFloat("_Glossiness", 0.45f);
+            int count = id == "mince" ? 6 : 3;
+            for (int i = 0; i < count; i++, n++)
+            {
+                var p = GameObject.CreatePrimitive(shape);
+                p.name = id;
+                Destroy(p.GetComponent<Collider>());
+                p.transform.SetParent(parent, true);
+                float ang = n * 2.399f + (float)rng.NextDouble() * 0.6f, dist = radius * 0.62f * Mathf.Sqrt(((n * 0.37f) % 1f) * 0.85f + 0.1f);
+                p.transform.position = c + new Vector3(Mathf.Cos(ang) * dist, size.y * 0.15f * k, Mathf.Sin(ang) * dist);
+                p.transform.rotation = Quaternion.Euler((float)rng.NextDouble() * 30f - 15f, (float)rng.NextDouble() * 360f, (float)rng.NextDouble() * 30f - 15f);
+                p.transform.localScale = size * 0.75f * k;
+                p.GetComponent<Renderer>().sharedMaterial = mat;
+            }
+        }
+    }
+
+    bool servedAtTable;
+
+    /// <summary>The dining room's table (the one with chairs round it), if the house has one.</summary>
+    static Transform DiningTable(out List<Transform> chairs)
+    {
+        chairs = new List<Transform>();
+        Transform table = null;
+        foreach (var t in FindObjectsOfType<Transform>())
+        {
+            var p = t.parent;
+            if (!p || p.name.IndexOf("Dining", System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+            string n = t.name.ToLowerInvariant();
+            if (n.Contains("table") && !table) table = t;
+            else if (n.Contains("chair")) chairs.Add(t);
+        }
+        return table;
+    }
+
+    /// <summary>Dinner laid at the dining table, in front of the chair nearest the kitchen (the place setting faces the chair).</summary>
+    bool TableSpot(out Vector3 at, out float yaw)
+    {
+        at = default; yaw = 0f;
+        var table = DiningTable(out var chairs);
+        if (!table) return false;
+        var tb = Bounds(table.gameObject);
+        if (tb.size.x < 0.6f || tb.size.y > 1.3f) return false;
+        Vector3 c = new Vector3(tb.center.x, tb.max.y, tb.center.z);
+        Vector3 from = stations.TryGetValue(KitchenStation.Kind.Island.ToString(), out var isl) && isl ? isl.transform.position : transform.position;
+        bool round = Mathf.Abs(tb.extents.x - tb.extents.z) < 0.08f;
+        // the seat nearest the kitchen: which side of the table it's at, and how far along that side
+        Vector3 seat = from;
+        float best = float.MaxValue;
+        foreach (var ch in chairs)
+        {
+            var cb = Bounds(ch.gameObject);
+            Vector3 d = cb.center - c; d.y = 0f;
+            if (d.magnitude > Mathf.Max(tb.extents.x, tb.extents.z) + 0.8f || d.sqrMagnitude < 1e-4f) continue; // (a chair at this table)
+            float score = (cb.center - from).sqrMagnitude;
+            if (score < best) { best = score; seat = cb.center; }
+        }
+        Vector3 rel = seat - c; rel.y = 0f;
+        Vector3 dir;
+        float along = 0f;
+        if (round) dir = rel.sqrMagnitude > 1e-4f ? rel.normalized : Vector3.forward;
+        else if (Mathf.Abs(rel.x) / tb.extents.x > Mathf.Abs(rel.z) / tb.extents.z)
+        {
+            dir = new Vector3(Mathf.Sign(rel.x), 0f, 0f);
+            along = Mathf.Clamp(rel.z, -tb.extents.z + 0.3f * K, tb.extents.z - 0.3f * K);
+        }
+        else
+        {
+            dir = new Vector3(0f, 0f, Mathf.Sign(rel.z));
+            along = Mathf.Clamp(rel.x, -tb.extents.x + 0.3f * K, tb.extents.x - 0.3f * K);
+        }
+        float edge = Along(dir, tb.extents);
+        float reach = edge - (round ? 0.4f : 0.24f) * K; // the mat's near edge just in from the table's edge
+        Vector3 side = Vector3.Cross(Vector3.up, dir);
+        Vector3 spot = c + dir * Mathf.Max(0f, reach) + side * Vector3.Dot(side, new Vector3(along * Mathf.Abs(dir.z), 0f, along * Mathf.Abs(dir.x)));
+        at = new Vector3(spot.x, tb.max.y, spot.z);
+        bool hitTable = false;
+        foreach (var hit in Physics.RaycastAll(at + Vector3.up * 0.5f, Vector3.down, 1.5f, ~0, QueryTriggerInteraction.Ignore).OrderBy(h => h.distance))
+        {
+            if (hit.collider.GetComponentInParent<Carryable>() || hit.collider.GetComponentInParent<Food>()) continue;
+            if (!hit.collider.transform.IsChildOf(table)) break;
+            at = hit.point + Vector3.up * 0.001f;
+            hitTable = true;
+            break;
+        }
+        if (!hitTable) at.y = tb.max.y + 0.001f;
+        yaw = Quaternion.LookRotation(-dir).eulerAngles.y; // the diner (at the chair) sits at the mat's near side
+        return true;
+    }
+
+    /// <summary>Where dinner goes: the dining table; else a clear bit of the island top (or by the stove if there's no island).</summary>
     bool ServeSpot(out Vector3 at, out float yaw)
     {
+        servedAtTable = TableSpot(out at, out yaw);
+        if (servedAtTable) return true;
         at = default; yaw = 0f;
         GameObject on = null;
         if (stations.TryGetValue(KitchenStation.Kind.Island.ToString(), out var island) && island) on = island.gameObject;
@@ -1086,6 +1592,151 @@ public class Cooking : TaskBase, IPromptProvider
         GameHUD.Toast($"{CatBrain.Name} ate dinner!", GameHUD.Bad);
     }
 
+    // ------------------------------------------------------------------ the tutorial's practice stew
+
+    /// <summary>
+    /// The tutorial's practice: a beef &amp; potato stew already on the go - the pot of water on the stove, the carrot and the onion
+    /// in. You add the mince (frozen: defrost it in the microwave) and a potato (chop it on the board), then turn the stove on;
+    /// 7 seconds later it's done. The kitchen's own markers, glow and recipe card show the way. <see cref="EndPractice"/> puts the
+    /// kitchen back as it was (tonight's real dinner comes later, as usual).
+    /// </summary>
+    public bool Practising { get; private set; }
+    public bool PracticeDone { get; private set; }
+    /// <summary>The stew's cooked: the stove's still on, waiting for you to turn it off.</summary>
+    public bool PracticeReady { get; private set; }
+    /// <summary>The stove's off and the pot's yours: take it to the island and serve it.</summary>
+    public bool PracticeServing { get; private set; }
+    /// <summary>How many of the practice's two things are in the pot.</summary>
+    public int PracticeAdded { get { int n = 0; if (Practising) foreach (var i in items) if (i.added) n++; return n; } }
+    public int PracticeItems => Practising ? items.Count : 0;
+    public bool PracticeCooking => Practising && cooking;
+    public float PracticeLeft => Practising && cooking ? Mathf.Max(0f, Today.cookSeconds - cookTimer) : 0f;
+    /// <summary>Something's going into the pot (or being lifted, filled...) right now.</summary>
+    public bool Busy => animating;
+    public Vector3 StovePoint => stations.TryGetValue(KitchenStation.Kind.Stove.ToString(), out var st) && st ? Bounds(st.gameObject).center : transform.position;
+    Recipe realToday;
+
+    public IEnumerator BeginPractice()
+    {
+        while (Today == null && enabled) yield return null; // (the kitchen's still being set up)
+        if (!enabled || Practising || !stations.TryGetValue(KitchenStation.Kind.Stove.ToString(), out var stove) || !stove) yield break;
+        realToday = Today;
+        Today = new Recipe { name = "Beef & potato stew", vessel = Vessel.Pot, ingredients = new[] { "mince", "potato" }, seasoning = "salt", cookSeconds = 7f, dish = "bowl-broth", momText = "" };
+        items.Clear();
+        foreach (var id in Today.ingredients) items.Add(new Item { ing = Ingredients[id] });
+        Practising = true;
+        PracticeDone = PracticeReady = PracticeServing = false;
+        vesselFetched = waterIn = seasoned = seasoningFetched = true;
+        started = true;
+        // the pot, full of water, on the stove (the one on the cookware counter is it)
+        if (onCounter.TryGetValue(Vessel.Pot, out var shown) && shown) shown.SetActive(false);
+        var pot = Food.MakeVessel(Vessel.Pot, this);
+        fetchedVessel = pot;
+        pot.ShowWater(true, 0.7f);
+        PlaceVessel(pot, stove.transform, true);
+        Activate();
+        // already in: the carrot and the onion
+        Vector3 eye = Camera.main ? Camera.main.transform.position : vesselBounds.center + Vector3.forward;
+        foreach (var id in new[] { "carrot", "onion" })
+        {
+            var f = Food.Make(Ingredients[id], this);
+            f.cut = true;
+            f.Refresh();
+            Quiet(f);
+            f.transform.position = vesselBounds.center + Vector3.up * 0.3f * K;
+            yield return f.PourInto(vesselContents, vesselBounds, eye, LandY(), true);
+        }
+    }
+
+    static void Quiet(Food f)
+    {
+        var carry = f.GetComponent<Carryable>();
+        if (carry) carry.enabled = false;
+        foreach (var c in f.GetComponentsInChildren<Collider>()) c.enabled = false;
+    }
+
+    /// <summary>(Tests / the tutorial's test hook) the next practice thing goes straight in; all = everything, and the stove on.</summary>
+    public void PracticeCheat(bool all)
+    {
+        if (!Practising) return;
+        foreach (var i in items)
+        {
+            if (i.added) continue;
+            i.fetched = i.defrosted = i.cut = i.added = true;
+            var f = Food.Make(i.ing, this);
+            f.defrosted = true;
+            f.cut = i.ing.cuts > 0;
+            f.Refresh();
+            Quiet(f);
+            f.transform.position = vesselBounds.center + Vector3.up * 0.3f * K;
+            StartCoroutine(Pour(f));
+            if (!all) return;
+        }
+        if (all && !cooking && !PracticeDone) { cooking = true; cookTimer = 0f; SetStove(true); }
+    }
+
+    /// <summary>(Practice) the stove's off: the pot comes off it and into your hands, to serve.</summary>
+    void PracticeTakeOff()
+    {
+        PracticeServing = true;
+        if (diningTable) { PlateUp(); return; } // (plated up like the real thing: you take it to the dining table)
+        var pot = vesselOnStove ? vesselOnStove.GetComponent<Food>() : null;
+        if (!pot) { PracticeServe(); return; }
+        GameHUD.Toast("Stove off. Now serve it: carry the pot to the island.", GameHUD.Info);
+        vesselOnStove = null;
+        pot.transform.SetParent(null, true);
+        foreach (var c in pot.GetComponentsInChildren<Collider>(true))
+            if (!vesselContents || !c.transform.IsChildOf(vesselContents)) c.enabled = true; // (the food in it stays quiet)
+        var carry = pot.GetComponent<Carryable>();
+        if (carry) carry.enabled = true;
+        Give(pot);
+    }
+
+    /// <summary>(Practice) the pot's at the island: dinner is served, the empty pot goes back on its counter.</summary>
+    void PracticeServe()
+    {
+        var held = HeldVessel();
+        if (held) { PlayerCarry.Instance.TakeHeld(); Destroy(held.gameObject); }
+        if (onCounter.TryGetValue(Vessel.Pot, out var shown) && shown) shown.SetActive(true);
+        PracticeServing = false;
+        ShowDish();
+        vesselContents = null;
+        done = PracticeDone = true;
+    }
+
+    /// <summary>The practice is over: the pot, the food, the stove's glow go; the kitchen is as it was for tonight's real dinner.</summary>
+    public void EndPractice()
+    {
+        if (!Practising) return;
+        Practising = false;
+        if (PlayerCarry.Instance && (HeldFood() || HeldVessel())) { var c = PlayerCarry.Instance.TakeHeld(); if (c) Destroy(c.gameObject); }
+        foreach (var f in FindObjectsOfType<Food>(true)) Destroy(f.gameObject);
+        if (stoveLight) Destroy(stoveLight.gameObject);
+        if (burnerGlow) Destroy(burnerGlow);
+        SetMicrowave(false);
+        microwaveFood = null;
+        microwaveLeft = 0f;
+        if (microwaveDisplay) microwaveDisplay.text = "";
+        if (onCounter.TryGetValue(Vessel.Pot, out var shown) && shown) shown.SetActive(true);
+        vesselOnStove = null;
+        vesselContents = null;
+        fetchedVessel = null;
+        vesselFetched = waterIn = vesselPlaced = seasoned = seasoningFetched = cooking = done = tossed = false;
+        cookTimer = 0f;
+        animating = false;
+        PracticeDone = PracticeReady = PracticeServing = false;
+        if (dishShown) { Destroy(dishShown); dishShown = null; } // (the practice stew, served)
+        if (carriedDinner) Destroy(carriedDinner);
+        carriedDinner = null;
+        toTable = washUp = false;
+        dirtyVessel = null;
+        if (realToday != null) Today = realToday;
+        items.Clear();
+        foreach (var id in Today.ingredients) items.Add(new Item { ing = Ingredients[id] });
+        started = false;
+        StopQuietly();
+    }
+
     void SetStove(bool on)
     {
         if (stoveLight) stoveLight.enabled = on;
@@ -1147,26 +1798,8 @@ public class Cooking : TaskBase, IPromptProvider
     {
         animating = true;
         PlayerCarry.Instance.TakeHeld();
-        var sb = Bounds(sink.gameObject);
-        var sinkMesh = sink.GetComponent<MeshFilter>();
-        float counterTop = sinkMesh && sinkMesh.sharedMesh ? sink.TransformPoint(new Vector3(0f, sinkMesh.sharedMesh.bounds.max.y, 0f)).y : sb.max.y;
         // The spout: the faucet's end that reaches out over the basin.
-        Transform faucet = null, tap = null;
-        foreach (var t in sink.GetComponentsInChildren<Transform>())
-        {
-            if (t.name == "Faucet") faucet = t;
-            else if (t.name == "Tap" && !tap) tap = t;
-        }
-        Vector3 toBasin = sb.center - (faucet ? faucet.position : sb.center + sink.forward);
-        toBasin.y = 0f;
-        toBasin = toBasin.sqrMagnitude > 1e-4f ? toBasin.normalized : sink.forward;
-        Vector3 tip;
-        if (faucet && faucet.GetComponent<Renderer>())
-        {
-            var fb = faucet.GetComponent<Renderer>().bounds;
-            tip = new Vector3(fb.center.x, fb.max.y - 0.045f, fb.center.z) + toBasin * (Along(toBasin, fb.extents) - 0.015f);
-        }
-        else tip = new Vector3(sb.center.x, counterTop + 0.3f, sb.center.z);
+        SinkSpot(sink, out Vector3 tip, out Vector3 toBasin, out float floorY, out Transform tap);
 
         // The pot goes down into the basin, under the spout (handles along the sink).
         Vector3 axis = pot.LongAxis; axis.y = 0f;
@@ -1174,21 +1807,13 @@ public class Cooking : TaskBase, IPromptProvider
         if (axis.sqrMagnitude > 1e-4f)
             upright = Quaternion.AngleAxis(Vector3.SignedAngle(axis.normalized, Vector3.Cross(toBasin, Vector3.up), Vector3.up), Vector3.up) * upright;
         // down on the basin floor (measured on the VNB sink: 0.79 in its own space; otherwise a guess)
-        float floorY = sinkMesh && sinkMesh.sharedMesh && sinkMesh.sharedMesh.name == "Counter (Connected - Sink)" ? sink.TransformPoint(new Vector3(0f, 0.79f, 0f)).y + 0.004f : counterTop - 0.1f;
         Vector3 spot = new Vector3(tip.x, floorY, tip.z) + toBasin * 0.06f;
         yield return pot.MoveTo(spot, upright, 0.35f);
 
         // The tap turns, the water runs, the pot fills.
         Quaternion tapRest = tap ? tap.localRotation : Quaternion.identity;
         for (float t = 0f; t < 1f && tap; t += Time.deltaTime / 0.15f) { tap.localRotation = tapRest * Quaternion.Euler(0f, 90f * t, 0f); yield return null; }
-        var stream = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        Destroy(stream.GetComponent<Collider>());
-        stream.name = "Running water";
-        var wm = new Material(Shader.Find("Standard")) { color = new Color(0.75f, 0.9f, 1f) };
-        wm.SetFloat("_Glossiness", 0.95f);
-        wm.EnableKeyword("_EMISSION");
-        wm.SetColor("_EmissionColor", new Color(0.25f, 0.35f, 0.45f)); // catches the light like running water
-        stream.GetComponent<Renderer>().sharedMaterial = wm;
+        var stream = WaterStream();
         pot.ShowWater(true, 0.08f);
         var pb = Bounds(pot.gameObject);
         float bottom = pb.min.y, height = pb.size.y;
@@ -1314,7 +1939,7 @@ public class Cooking : TaskBase, IPromptProvider
                 screen.GetComponent<Renderer>().sharedMaterial = new Material(Shader.Find("Standard")) { color = new Color(0.03f, 0.06f, 0.04f) };
             }
         }
-        microwaveDisplay.text = "0:10";
+        microwaveDisplay.text = $"0:{Mathf.CeilToInt(microwaveLeft):00}";
     }
 
     /// <summary>The VNB microwave (its display and turntable were measured on that model).</summary>
@@ -1425,13 +2050,15 @@ public class Cooking : TaskBase, IPromptProvider
         var sb = new System.Text.StringBuilder();
         string vessel = VesselName();
         Line(sb, $"{char.ToUpper(vessel[0])}{vessel.Substring(1)} ({(Today.vessel == Vessel.Bowl ? "island" : "stove")}){(Today.vessel == Vessel.Pot ? " + water" : "")}", vesselPlaced);
+        if (Practising) Line(sb, "Carrot + onion (already in)", true);
         foreach (var i in items)
         {
-            string how = (i.ing.frozen ? "defrost, " : "") + (i.ing.cuts > 0 ? "chop" : "whole");
+            string how = (i.ing.frozen ? "defrost" + (i.ing.cuts > 0 ? ", " : "") : "") + (i.ing.cuts > 0 ? "chop" : i.ing.frozen ? "" : "whole");
             Line(sb, $"{char.ToUpper(i.ing.name[0])}{i.ing.name.Substring(1)} - {i.ing.store.ToString().ToLowerInvariant()}, {how}", i.added);
         }
-        Line(sb, Today.seasoning == "salt" ? "Salt (pantry)" : "Oil (pantry)", seasoned);
-        Line(sb, Today.cookSeconds > 0f ? $"Cook {Mathf.RoundToInt(Today.cookSeconds)}s, take off in time" : "Toss at the island", done);
+        if (!Practising) Line(sb, Today.seasoning == "salt" ? "Salt (pantry)" : "Oil (pantry)", seasoned);
+        Line(sb, Practising ? $"Turn on the stove ({Mathf.RoundToInt(Today.cookSeconds)}s)" : Today.cookSeconds > 0f ? $"Cook {Mathf.RoundToInt(Today.cookSeconds)}s, take off in time" : "Toss at the island", Practising ? PracticeReady || done : done);
+        if (Practising) Line(sb, diningTable ? "Stove off, serve it at the dining table" : "Stove off, serve it on the island", done);
         sb.Append("\n<color=#E07B12><b>Next:</b> ").Append(NextStep()).Append("</color>");
         cardLines.text = sb.ToString();
     }
@@ -1464,7 +2091,7 @@ public class Cooking : TaskBase, IPromptProvider
 /// <summary>A kitchen spot you use with E (fridge, freezer, pantry, cookware cupboard, sink, cutting board, microwave, stove, island).</summary>
 public class KitchenStation : MonoBehaviour, IInteractable, IPromptProvider
 {
-    public enum Kind { Fridge, Freezer, Pantry, Cookware, Sink, Board, Microwave, Stove, Island }
+    public enum Kind { Fridge, Freezer, Pantry, Cookware, Sink, Board, Microwave, Stove, Island, Table }
     public Kind kind;
 
     public string Prompt

@@ -20,16 +20,16 @@ public class Mug : MonoBehaviour
     static readonly Color[] Cups = { new Color(0.93f, 0.93f, 0.9f), new Color(0.85f, 0.3f, 0.25f), new Color(0.3f, 0.45f, 0.75f), new Color(0.95f, 0.78f, 0.25f), new Color(0.35f, 0.6f, 0.4f) };
     static readonly Color[] Drinks = { new Color(0.42f, 0.24f, 0.12f), new Color(0.95f, 0.6f, 0.12f), new Color(0.55f, 0.75f, 0.95f, 0.8f), new Color(0.6f, 0.15f, 0.25f) };
 
-    /// <summary>A mug (or glass) standing at 'at' (the top of a table).</summary>
-    public static Mug Create(Vector3 at, float scale)
+    /// <summary>A mug (or glass) standing at 'at' (the top of a table). glassOfWater: a glass of water for sure.</summary>
+    public static Mug Create(Vector3 at, float scale, bool glassOfWater = false)
     {
-        bool glass = Random.value < 0.35f;
+        bool glass = glassOfWater || Random.value < 0.35f;
         var go = new GameObject(glass ? "Glass (drink)" : "Mug (drink)");
         go.transform.position = at;
         go.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
         var m = go.AddComponent<Mug>();
         m.Size = scale;
-        m.drink = Drinks[Random.Range(0, Drinks.Length)];
+        m.drink = glassOfWater ? Drinks[2] : Drinks[Random.Range(0, Drinks.Length)];
         float h = glass ? 0.12f : 0.1f, r = glass ? 0.035f : 0.045f;
         var cup = glass ? Mat(new Color(0.8f, 0.92f, 1f, 0.35f), true) : Mat(Cups[Random.Range(0, Cups.Length)], false);
         Part(PrimitiveType.Cylinder, go.transform, new Vector3(0f, h * 0.5f, 0f), new Vector3(r * 2f, h * 0.5f, r * 2f), cup, scale);

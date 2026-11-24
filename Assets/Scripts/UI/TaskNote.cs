@@ -64,6 +64,25 @@ public class TaskNote : MonoBehaviour
         RefreshContent(0f, Time.unscaledTime);
     }
 
+    int shownKey = -1;
+    bool compact;
+
+    /// <summary>A smaller note further down the list: title, timer and bar, no status line.</summary>
+    public void SetCompact(bool on)
+    {
+        if (compact == on) return;
+        compact = on;
+        if (status) status.enabled = !on;
+    }
+
+    /// <summary>The number to press (TAB held) for the paw-print trail to this job; 0 hides it.</summary>
+    public void SetKey(int n)
+    {
+        if (n == shownKey || !Task) return;
+        shownKey = n;
+        title.text = n > 0 ? $"<color=#D23A30>{n}</color>  {Task.taskName}" : Task.taskName;
+    }
+
     public void SetSlot(float slotY, float scaleFactor)
     {
         targetY = slotY;

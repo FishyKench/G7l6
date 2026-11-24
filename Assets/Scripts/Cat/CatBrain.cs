@@ -117,6 +117,8 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     /// <summary>True while the cat is full and calm after eating (no mischief).</summary>
     public bool Calm => Time.time < calmUntil;
+    /// <summary>No mischief for this long (0: let her loose now).</summary>
+    public void KeepCalm(float seconds) => calmUntil = seconds <= 0f ? 0f : Time.time + seconds;
 
     /// <summary>The cat feeder dropped some food: go and eat at 'standSpot' (facing the bowl), then stay calm for 'calmSeconds'.</summary>
     public void CallToFeeder(Vector3 standSpot, Vector3 bowl, float calmSeconds)
@@ -127,6 +129,42 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         calmUntil = Mathf.Max(calmUntil, Time.time + calmSeconds);
     }
     float crouch, crouchTarget, loaf, loafTarget, hop, wiggle, purr, headWeight;
+    Vector3 lookDir; // where her head points (world): it turns smoothly towards what she's watching, never snaps
+    Vector3 lookVel, gazePoint;
+    float nextGaze, headTilt, tiltTarget;
+    bool glancing;
+
+    /// <summary>
+    /// What she's looking at, the way a cat does: at you in glances she holds for a second or three (not a perfect track: she
+    /// looks again when you've moved a fair bit), now and then a look away at something else, sometimes with a curious tilt.
+    /// </summary>
+    void UpdateGaze(bool near)
+    {
+        if (Focused) { gazePoint = focusPoint; tiltTarget = 0f; glancing = false; return; }
+        Vector3 head = headBone.position;
+        Vector3 you = Camera.main ? Camera.main.transform.position : player.position + Vector3.up * 1.5f;
+        if (gazePoint == Vector3.zero) nextGaze = 0f;
+        // you've moved well away from where she's looking: she looks again (after a beat)
+        if (near && !glancing && Vector3.Angle(gazePoint - head, you - head) > 40f && nextGaze > Time.time + 0.8f)
+            nextGaze = Time.time + Random.Range(0.5f, 0.9f);
+        if (Time.time < nextGaze) return;
+        if (near && Random.value < 0.82f)
+        {
+            glancing = false;
+            gazePoint = you + Random.insideUnitSphere * 0.12f;
+            nextGaze = Time.time + Random.Range(3f, 6f);
+            tiltTarget = Random.value < 0.18f ? Random.Range(10f, 16f) * (Random.value < 0.5f ? -1f : 1f) : 0f;
+        }
+        else
+        {
+            // a look at something else: off to one side, up or down a little
+            glancing = true;
+            Vector3 dir = Quaternion.AngleAxis(Random.Range(-45f, 45f), Vector3.up) * transform.forward;
+            gazePoint = head + dir * 2f * Size + Vector3.up * Random.Range(-0.25f, 0.3f) * Size;
+            nextGaze = Time.time + Random.Range(1.8f, 3.5f);
+            tiltTarget = 0f;
+        }
+    }
 
     // jumping on/off furniture
     bool jumping;
@@ -195,7 +233,7 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         agent.radius = 0.13f;
         agent.height = 0.42f;
         agent.speed = walkSpeed;
-        agent.angularSpeed = 420f;
+        agent.angularSpeed = 0f; // (she turns herself, smoothly - see Steer; the agent only moves her)
         agent.acceleration = 10f;
         agent.autoTraverseOffMeshLink = false; // we animate the jumps ourselves
         ready = true;
@@ -234,14 +272,15 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         SafetyCheck();
         Trace();
         WorldUpdate(dt);
+        Steer(dt);
 
         if (animator)
         {
             float speed = agent.enabled ? agent.velocity.magnitude : 0f;
             float vert = jumping ? 1f : Mathf.Clamp01(speed / (walkSpeed * 0.6f));
             float state = jumping ? 0.7f : Mathf.InverseLerp(walkSpeed * 1.1f, runSpeed, speed);
-            animator.SetFloat(VertParam, vert, 0.1f, dt);
-            animator.SetFloat(StateParam, state, 0.1f, dt);
+            animator.SetFloat(VertParam, vert, 0.22f, dt);   // (soft blends between standing, walking and trotting)
+            animator.SetFloat(StateParam, state, 0.3f, dt);
             float animSpeed = mood switch
             {
                 Mood.Napping => 0.25f,
@@ -313,6 +352,7 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
             shape.y *= 1f + breathe;
             shape.x *= 1f + breathe * 0.6f;
             bodyBone.localScale = Vector3.Scale(bodyRestScale, shape);
+            WorldReach(); // (a paw reaching for something: after the squash, so it lands where it's aimed)
             bodyTweak.End(bodyBone);
         }
 
@@ -320,17 +360,30 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         {
             headTweak.Begin(headBone);
             // Turn the head to watch the player when they're close.
-            bool look = player && !jumping && (mood == Mood.Idle || mood == Mood.Walking || mood == Mood.Purring || mood == Mood.Perching || mood == Mood.Keyboard)
-                        && (player.position - transform.position).sqrMagnitude < 25f;
-            headWeight = Mathf.MoveTowards(headWeight, look ? 1f : 0f, Time.deltaTime * 2.5f);
+            bool near = player && (player.position - transform.position).sqrMagnitude < 25f;
+            bool calm = !jumping && (mood == Mood.Idle || mood == Mood.Walking || mood == Mood.Purring || mood == Mood.Perching || mood == Mood.Keyboard);
+            bool look = Focused || calm && player; // (close by she watches you; further off she just looks about)
+            headWeight = Mathf.MoveTowards(headWeight, look ? (Focused || near ? 1f : 0.55f) : 0f, Time.deltaTime * 1.6f);
             if (headWeight > 0.001f)
             {
-                Vector3 eyes = Camera.main ? Camera.main.transform.position : player.position + Vector3.up * 1.5f;
-                Quaternion turn = Quaternion.FromToRotation(transform.forward, (eyes - headBone.position).normalized);
+                UpdateGaze(near);
+                Vector3 want = (gazePoint - headBone.position).normalized;
+                // a calm turn that settles (not a perfect track)
+                if (lookDir.sqrMagnitude < 0.5f) lookDir = transform.forward;
+                lookDir = Vector3.SmoothDamp(lookDir, want, ref lookVel, Focused ? 0.55f : 0.5f, 1.6f).normalized; // (an unhurried turn)
+                Quaternion turn = Quaternion.FromToRotation(transform.forward, lookDir);
                 float angle = Quaternion.Angle(Quaternion.identity, turn);
                 if (angle > 75f) turn = Quaternion.Slerp(Quaternion.identity, turn, 75f / angle);
-                headBone.rotation = Quaternion.Slerp(Quaternion.identity, turn, headWeight * 0.8f) * headBone.rotation;
+                float w = Mathf.SmoothStep(0f, 1f, headWeight); // (eases in and out, no sudden start or stop)
+                headBone.rotation = Quaternion.Slerp(Quaternion.identity, turn, w * 0.8f) * headBone.rotation;
+                // alive: a slow drift, and a curious tilt now and then
+                float t = Time.time;
+                float driftYaw = (Mathf.PerlinNoise(t * 0.25f, 3.1f) - 0.5f) * 7f, driftPitch = (Mathf.PerlinNoise(7.7f, t * 0.2f) - 0.5f) * 5f;
+                headTilt = Mathf.Lerp(headTilt, tiltTarget, 1f - Mathf.Exp(-1.8f * Time.deltaTime));
+                headBone.rotation = Quaternion.AngleAxis(driftYaw * w, Vector3.up) * Quaternion.AngleAxis(driftPitch * w, transform.right)
+                                  * Quaternion.AngleAxis(headTilt * w, lookDir) * headBone.rotation;
             }
+            else { lookDir = transform.forward; lookVel = Vector3.zero; headTilt = 0f; } // (next time she looks, the head starts from straight ahead)
             if (loaf > 0.01f && mood == Mood.Napping) // tuck the head down when napping
                 headBone.rotation = Quaternion.AngleAxis(loaf * 25f, transform.right) * headBone.rotation;
             if (purr > 0.01f) // slow, happy head rub
@@ -875,6 +928,21 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         mood = Mood.Idle;
     }
 
+    /// <summary>
+    /// Her heading while the agent walks her: she eases round into where she's going (a curve, quicker when she's running)
+    /// instead of the agent's fixed-rate snap at every corner of the path. (Anything turning her itself switches
+    /// agent.updateRotation off, and this leaves her alone then.)
+    /// </summary>
+    void Steer(float dt)
+    {
+        if (!agent.enabled || !agent.updateRotation || jumping) return;
+        Vector3 want = Flat(agent.desiredVelocity);
+        if (want.sqrMagnitude < 0.0025f) want = Flat(agent.velocity);
+        if (want.sqrMagnitude < 0.0025f) return;
+        float rate = agent.velocity.magnitude > walkSpeed * 1.5f ? 8f : 5.5f;
+        transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(want), 1f - Mathf.Exp(-rate * dt));
+    }
+
     // ------------------------------------------------------------------ moves
 
     IEnumerator WalkTo(Vector3 destination, float speed, float stopDistance, float timeout)
@@ -913,7 +981,7 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
         Quaternion from = transform.rotation, to = Quaternion.LookRotation(dir);
         for (float t = 0f; t < duration; t += Time.deltaTime)
         {
-            transform.rotation = Quaternion.Slerp(from, to, t / duration);
+            transform.rotation = Quaternion.Slerp(from, to, Mathf.SmoothStep(0f, 1f, t / duration)); // (eases in and out)
             yield return null;
         }
         transform.rotation = to;
@@ -1016,6 +1084,7 @@ public partial class CatBrain : MonoBehaviour, IInteractable, IPromptProvider
 
     void React(IEnumerator reaction)
     {
+        if (inShow) return; // (the tutorial's show: nothing else cuts in)
         StopAllCoroutines();
         ResetPose();
         StartCoroutine(ThenCarryOn(reaction));

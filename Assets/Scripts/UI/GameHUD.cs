@@ -38,6 +38,37 @@ public class GameHUD : MonoBehaviour
 
     readonly Dictionary<TaskBase, TaskNote> notes = new Dictionary<TaskBase, TaskNote>();
     readonly List<TaskBase> ended = new List<TaskBase>();
+    readonly List<TaskBase> byUrgency = new List<TaskBase>();
+    TextMeshProUGUI moreTag;
+    const float CompactScale = 0.66f;
+
+    static float Urgency(TaskBase t)
+    {
+        if (t is HazardTask) return -1000f + t.ActivatedAt * 0.001f;           // fire, flood, leak: first
+        if (t.isMainTask) return 100000f + t.ActivatedAt;                      // homework / the match: always there, so last
+        return t.DeadlineRunning ? t.TimeLeft : 50000f + t.ActivatedAt;        // the rest: soonest to run out
+    }
+
+    /// <summary>Under the notes: "hold TAB: show me the way" (or, with TAB held, which numbers to press).</summary>
+    void MoreTag(bool listOpen, float bottomY)
+    {
+        if (!moreTag)
+        {
+            moreTag = UIFactory.Text("More", notesRoot, 26, HudArt.Ink, TextAlignmentOptions.TopRight, font);
+            moreTag.raycastTarget = false;
+            moreTag.outlineWidth = 0.18f;
+            moreTag.outlineColor = new Color32(255, 250, 235, 220);
+            var rt = moreTag.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(1f, 1f);
+            rt.sizeDelta = new Vector2(360f, 40f);
+        }
+        string text = byUrgency.Count == 0 ? ""
+                    : listOpen ? "press <color=#D23A30>1-" + Mathf.Min(9, byUrgency.Count) + "</color>: show me the way"
+                    : "<size=80%>hold TAB: show me the way</size>";
+        if (moreTag.text != text) moreTag.text = text;
+        moreTag.rectTransform.anchoredPosition = new Vector2(-6f, bottomY - 6f);
+    }
 
     public bool IsBuilt => notesRoot && noteTemplate && prompt && toast;
 
@@ -122,15 +153,29 @@ public class GameHUD : MonoBehaviour
             else if (note) note.Finish(task && task.LastSucceeded);
         }
 
-        var tasks = GameManager.Instance ? GameManager.Instance.GetHudTasks() : null;
-        int count = tasks != null ? tasks.Count : 0;
-        int shown = count; // every note, always: you need to see everything you've got on to plan
-        float fit = shown == 0 ? 1f : Mathf.Clamp(notesMaxHeight / (shown * noteSpacing), 0.6f, 1f);
+        var all = GameManager.Instance ? GameManager.Instance.GetHudTasks() : null;
+        // most urgent first: something spreading, then whatever runs out soonest, then the long ones (homework, the match)
+        byUrgency.Clear();
+        if (all != null) byUrgency.AddRange(all);
+        byUrgency.Sort((a, b) => Urgency(a).CompareTo(Urgency(b)));
+        var tasks = byUrgency;
+        int count = tasks.Count;
+        // every job stays on the list (you plan with it) - but only the most urgent is a big note; the rest sit under it,
+        // smaller and without the status line. Hold TAB: all full size and numbered (press one for footprints to it).
+        bool listOpen = TaskGuide.ListOpen;
+        int shown = count;
+        if (TaskGuide.Instance) TaskGuide.Instance.SetListed(tasks);
+        float want = 0f;
+        for (int i = 0; i < count; i++) want += noteSpacing * (listOpen || i == 0 ? 1f : CompactScale);
+        float fit = want <= 0f ? 1f : Mathf.Clamp(notesMaxHeight / want, 0.6f, 1f);
+        float nextY = 0f;
 
         for (int i = 0; i < count; i++)
         {
             var task = tasks[i];
-            float slotY = -i * noteSpacing * fit;
+            float size = (listOpen || i == 0 ? 1f : CompactScale) * fit;
+            float slotY = nextY;
+            nextY -= noteSpacing * size;
             if (!notes.TryGetValue(task, out var note) || !note)
             {
                 note = Instantiate(noteTemplate, notesRoot);
@@ -140,8 +185,9 @@ public class GameHUD : MonoBehaviour
             }
             bool visible = i < shown;
             if (note.gameObject.activeSelf != visible) note.gameObject.SetActive(visible);
-            if (visible) note.SetSlot(slotY, fit);
+            if (visible) { note.SetSlot(slotY, size); note.SetCompact(!listOpen && i > 0); note.SetKey(listOpen && i < 9 ? i + 1 : 0); }
         }
+        MoreTag(listOpen, nextY);
         if (emptyHint)
             emptyHint.alpha = Mathf.MoveTowards(emptyHint.alpha, count == 0 ? 1f : 0f, Time.unscaledDeltaTime * 3f);
     }

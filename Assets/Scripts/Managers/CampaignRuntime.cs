@@ -50,7 +50,7 @@ public class CampaignRuntime : MonoBehaviour
         yield return null; // every Start() has run, the scene's own values are in place
         ApplyRules();
         yield return new WaitForSeconds(1.2f);
-        while (Onboarding.Showing) yield return null; // (the first-time intro comes first)
+        while (Onboarding.Showing || TutorialDay.Active) yield return null; // (the first-time intro / the tutorial come first)
         yield return new WaitForSeconds(0.3f);
         ui.ShowIntro(rules);
         if (LiveStream.BannedToday)
@@ -117,10 +117,13 @@ public class CampaignRuntime : MonoBehaviour
         DebugKeys();
     }
 
+    /// <summary>The day's mail lands at 4:30 PM: until then the PC is about homework, not the inbox.</summary>
+    public const float MailHour = 16.5f;
+
     void Mails(float hour)
     {
         int d = Campaign.DayIndex;
-        if (hour < 15.08f || mailsSent[d]) return;
+        if (hour < MailHour || mailsSent[d]) return;
         mailsSent[d] = true;
         string home = Campaign.HourText(rules.momHomeHour);
         switch (d)
@@ -131,15 +134,22 @@ public class CampaignRuntime : MonoBehaviour
                         "Every ranked match you play moves your rating: +25 for each round you win, -20 for each round you lose and +30 for winning the match.\n\n" +
                         "Ranks: Bronze, Silver, Gold, Diamond and Champion, 100 points each.\n\n" +
                         $"Reach {Campaign.RankName(Campaign.GateRank)} ({Campaign.GateRating} RP) by Thursday night to qualify for Friday's tournament: 1st place wins ${Campaign.Prize1st}, 2nd place ${Campaign.Prize2nd}.\n\n" +
-                        "Mondays are quiet, so start climbing. Your ranked match begins at " + Campaign.HourText(rules.matchStartHour) + ".\n\n- The Ranked League",
+                        "Mondays are quiet, so start climbing. Ranked matches start at " + Campaign.HourText(rules.matchStartHour) + " every day.\n\n- The Ranked League",
                         Mail.Kind.Info);
                 break;
             case 1:
                 if (Campaign.Once("scrim"))
-                    Mail.Send("Jay", "Scrim before ranked?",
-                        "Hey! A few of us are running a scrim in the warm-up lobby before ranked starts. Jump in with your headset (launch Ranked Arena on the PC first) and play for a bit.\n\n" +
-                        $"The league gives +{Campaign.ScrimBonus} rank points to anyone who plays a scrim. Easy points!\n\n- Jay",
-                        Mail.Kind.Invite);
+                {
+                    if (scrimPaid)
+                        Mail.Send("Jay", "GG in the scrim!",
+                            $"Thanks for jumping in to the scrim earlier! The league gave you +{Campaign.ScrimBonus} rank points for it.\n\nWe run one most Tuesdays before ranked - see you next week.\n\n- Jay",
+                            Mail.Kind.Info);
+                    else
+                        Mail.Send("Jay", "You missed the scrim!",
+                            "We ran a scrim in the warm-up lobby before ranked today - you'd have got " + $"+{Campaign.ScrimBonus} rank points just for playing a bit.\n\n" +
+                            "Next Tuesday: put your headset on before ranked starts (launch Ranked Arena on the PC first).\n\n- Jay",
+                            Mail.Kind.Info);
+                }
                 break;
             case 2:
                 if (Campaign.Once("wed"))
@@ -172,9 +182,9 @@ public class CampaignRuntime : MonoBehaviour
     void Tips(float hour)
     {
         // A few gentle hints on the very first Monday only.
-        if (Campaign.DayIndex != 0 || Campaign.Week != 1) return;
-        if (!tip1 && hour >= 15.15f && Campaign.Once("tip1")) { tip1 = true; GameHUD.Toast("Tip: hold TAB to see where the important things are.", GameHUD.Info); }
-        if (!tip2 && hour >= 15.45f && Campaign.Once("tip2")) { tip2 = true; GameHUD.Toast("Tip: sit at your PC to read mail and launch Ranked Arena.", GameHUD.Info); }
+        if (Campaign.DayIndex != 0 || Campaign.Week != 1 || TutorialDay.Active) return;
+        if (!tip1 && hour >= 15.15f && Campaign.Once("tip1")) { tip1 = true; GameHUD.Toast("Tip: hold TAB for your whole to-do list - press a number and footprints show the way.", GameHUD.Info); }
+        if (!tip2 && hour >= 15.45f && Campaign.Once("tip2")) { tip2 = true; GameHUD.Toast("Tip: at your PC, homework first - then launch Ranked Arena.", GameHUD.Info); }
         if (!tip3 && hour >= 15.75f && Campaign.Once("tip3")) { tip3 = true; GameHUD.Toast("Tip: ranked starts at 4:00. Put things back before Mom checks!", GameHUD.Info); }
     }
 

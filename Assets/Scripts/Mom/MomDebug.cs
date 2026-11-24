@@ -228,6 +228,18 @@ public class MomDebug : MonoBehaviour
             Onboarding.ForgetSeen();
             note = "Intro and how-to notes reset: they show again when a day starts (R on the report card, or restart).";
         }
+        if (GUILayout.Button("Replay the tutorial now"))
+        {
+            if (TutorialDay.Active) note = "The tutorial's already running.";
+            else if (DayManager.Instance && DayManager.Instance.State != DayManager.Phase.Day) note = "Only during the day (3 - 6 PM).";
+            else
+            {
+                note = Cooking.Instance && Cooking.Instance.IsActive ? "Tonight's cooking has started, so the cooking part is skipped." : "";
+                StopJob();
+                SetOpen(false);
+                TutorialDay.Replay();
+            }
+        }
 
         GUILayout.Space(6);
         GUILayout.Label("Chain reactions", head);

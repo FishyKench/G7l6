@@ -17,6 +17,8 @@ public class ItemFinder : MonoBehaviour
     public static bool Showing => Instance && Instance.showing;
 
     public KeyCode key = KeyCode.Tab;
+    /// <summary>Debug / tests: as if TAB were held.</summary>
+    public static bool DebugHold;
     public Color glowColor = new Color32(120, 230, 120, 255);
     public Color labelColor = new Color32(46, 150, 68, 255);
 
@@ -43,15 +45,13 @@ public class ItemFinder : MonoBehaviour
         var canvas = UIFactory.CreateCanvas("Item Finder Canvas", 48);
         canvas.transform.SetParent(transform, false);
         canvasRect = (RectTransform)canvas.transform;
-
-        yield return new WaitForSeconds(5f);
-        GameHUD.Toast("Hold TAB to find the remote, mop, bucket...", GameHUD.Info);
+        yield break; // (the first day's tips say what TAB does - not a toast every single day)
     }
 
     void Update()
     {
         bool busy = PlayerInteraction.Instance && PlayerInteraction.Instance.InMainTask;
-        bool want = !PauseMenu.IsPaused && !busy && Input.GetKey(key) && !(DayManager.Instance && DayManager.Instance.State == DayManager.Phase.Report);
+        bool want = !PauseMenu.IsPaused && !busy && (Input.GetKey(key) || DebugHold) && !(DayManager.Instance && DayManager.Instance.State == DayManager.Phase.Report);
         if (want != showing)
         {
             showing = want;
