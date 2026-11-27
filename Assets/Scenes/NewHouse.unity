@@ -73547,17 +73547,17 @@ PrefabInstance:
     - target: {fileID: 2826508556273489506, guid: f99779424a762ad42bde7fe5d501f244,
         type: 3}
       propertyPath: m_LocalPosition.x
-      value: 16.907
+      value: 16.985
       objectReference: {fileID: 0}
     - target: {fileID: 2826508556273489506, guid: f99779424a762ad42bde7fe5d501f244,
         type: 3}
       propertyPath: m_LocalPosition.y
-      value: 5.914
+      value: 5.814
       objectReference: {fileID: 0}
     - target: {fileID: 2826508556273489506, guid: f99779424a762ad42bde7fe5d501f244,
         type: 3}
       propertyPath: m_LocalPosition.z
-      value: 12.838
+      value: 13.015
       objectReference: {fileID: 0}
     - target: {fileID: 2826508556273489506, guid: f99779424a762ad42bde7fe5d501f244,
         type: 3}
@@ -162116,11 +162116,11 @@ Transform:
   - {fileID: 1197645409}
   - {fileID: 806625092}
   - {fileID: 2006254164}
+  - {fileID: 2085586258}
   - {fileID: 471040223}
   - {fileID: 1998587552}
   - {fileID: 942669096}
   - {fileID: 483320948}
-  - {fileID: 2085586258}
   - {fileID: 93377281}
   m_Father: {fileID: 774716812}
   m_RootOrder: 11
@@ -254078,7 +254078,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1291469432}
-  m_RootOrder: 16
+  m_RootOrder: 12
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!65 &2085586259
 BoxCollider:
